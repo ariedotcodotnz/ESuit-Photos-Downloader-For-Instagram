@@ -177,6 +177,65 @@ try {
     calls.join(","),
   );
 
+  // Reproduce a bulk-story HTTP 500, then exercise the selection view when
+  // both endpoints fail. A retry should recover without reopening the modal.
+  await page.goto("https://www.instagram.com/stories/someone/");
+  const storyIcon = page.locator('#story img[alt="Download"]');
+  await storyIcon.waitFor({ timeout: 15000 });
+  await storyIcon.click();
+  await page.getByText("Download Successful").first().waitFor({ timeout: 15000 });
+  const storyCalls = await page.evaluate(() => window.__apiCalls);
+  check(
+    "story download recovers from a bulk API server error",
+    storyCalls.includes("/api/v1/feed/reels_media/") && storyCalls.includes("/api/v1/feed/user/1563074505/story/"),
+    storyCalls.join(","),
+  );
+  const storyDownloads = await worker.evaluate(() => globalThis.__requestedDownloads);
+  check(
+    "fallback story is sent to browser downloads",
+    storyDownloads.at(-1)?.url === "https://scontent.cdninstagram.com/v/full_n.jpg" &&
+      storyDownloads.at(-1)?.filename === "IG Album Downloader/full_n.jpg",
+  );
+
+  await page.evaluate(() => {
+    window.__storyFeedFailure = true;
+  });
+  const errorStart = consoleErrors.length;
+  await page.mouse.move(0, 0);
+  await storyIcon.hover();
+  await page.getByRole("button", { name: "Select to Download" }).click();
+  const loadError = page.getByRole("alert").filter({ hasText: "Failed to load the files." });
+  await loadError.waitFor({ timeout: 10000 });
+  check(
+    "failed selection load displays an error and stops the spinner",
+    (await loadError.textContent()).includes("Stories are temporarily unavailable.") &&
+      (await page.locator(".ant-modal-body .ant-spin").count()) === 0,
+  );
+  check(
+    "download stays disabled after a failed load",
+    await page.getByRole("button", { name: "Select a Folder to Download" }).isDisabled(),
+  );
+  await page.screenshot({ path: join(out, "story-selection-error.png") });
+  // The failed request is expected to be logged once by the selection view.
+  const expectedErrors = consoleErrors.splice(errorStart);
+  check(
+    "selection failure is handled without extra errors",
+    expectedErrors.length === 1 && expectedErrors[0].includes("Stories are temporarily unavailable."),
+    expectedErrors.join(" | "),
+  );
+  await page.evaluate(() => {
+    window.__storyFeedFailure = false;
+  });
+  await loadError.getByRole("button", { name: "Retry" }).click();
+  await page.getByRole("checkbox", { name: "Select All", exact: true }).waitFor({ timeout: 10000 });
+  check(
+    "retry loads and selects the story files",
+    (await page.getByRole("checkbox", { name: "Select All", exact: true }).isChecked()) &&
+      (await page.getByRole("button", { name: "Select a Folder to Download" }).isEnabled()),
+  );
+  await page.screenshot({ path: join(out, "story-selection-recovered.png") });
+  await page.locator("button.ant-modal-close").click();
+
   const finalErrors = consoleErrors.filter((e) => !/favicon|Warning:/i.test(e));
   check("still no page errors after downloads", finalErrors.length === 0, finalErrors.join(" | ").slice(0, 500));
 

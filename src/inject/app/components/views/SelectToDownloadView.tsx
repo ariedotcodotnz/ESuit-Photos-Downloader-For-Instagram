@@ -1,7 +1,8 @@
 import { CheckOutlined } from "@ant-design/icons";
-import { App, Button, Checkbox, Col, Row, Spin } from "antd";
+import { Alert, App, Button, Checkbox, Col, Empty, Row, Spin } from "antd";
 import { useEffect, useState } from "react";
 import { downloadMediaItem, resetFilenameCounter } from "../../download/download-media";
+import { extractErrorMessage, friendlyErrorMessage } from "../../download/errors";
 import { useDirectoryPicker } from "../../hooks/use-directory-picker";
 import type { MediaItem } from "../../media/types";
 import { useDownloaderModal } from "../../state/downloader-modal";
@@ -17,10 +18,15 @@ export function SelectToDownloadView() {
   const [items, setItems] = useState<MediaItem[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [downloaded, setDownloaded] = useState<string[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     if (!fetchQuery) return;
     let cancelled = false;
+    setItems(null);
+    setSelected([]);
+    setLoadError(null);
     fetchQuery({ nextParams: null })
       .then(({ items: fetched }) => {
         if (cancelled) return;
@@ -28,13 +34,14 @@ export function SelectToDownloadView() {
         setSelected(fetched.map((item) => item.id));
       })
       .catch((error: unknown) => {
+        if (cancelled) return;
         console.error(error);
-        void message.error("Failed to load the files.");
+        setLoadError(friendlyErrorMessage(extractErrorMessage(error)));
       });
     return () => {
       cancelled = true;
     };
-  }, [fetchQuery, message]);
+  }, [fetchQuery, loadAttempt]);
 
   const download = async () => {
     if (!items || !(await requestDirectory())) return;
@@ -71,10 +78,20 @@ export function SelectToDownloadView() {
         </Button>
       }
     >
-      {!items ? (
+      {loadError ? (
+        <Alert
+          type="error"
+          showIcon
+          message="Failed to load the files."
+          description={loadError}
+          action={<Button onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Retry</Button>}
+        />
+      ) : !items ? (
         <div style={{ paddingTop: 120, display: "flex", justifyContent: "center" }}>
           <Spin />
         </div>
+      ) : items.length === 0 ? (
+        <Empty description="No files are available to download." />
       ) : (
         <Row gutter={[12, 12]} style={{ maxHeight: 400, overflow: "auto", overflowX: "hidden" }}>
           <Col span={24}>

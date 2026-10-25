@@ -75,26 +75,37 @@
         module.exports = {
           apiGet: async function (path) {
             window.__apiCalls = (window.__apiCalls || []).concat(path);
-            if (!path.includes("/api/v1/media/")) throw new Error("unexpected API call " + path);
-            return {
-              data: {
-                items: [
-                  {
-                    pk: "3141592653589793",
-                    code: "CODE123",
-                    media_type: 1,
-                    taken_at: 1700000000,
-                    image_versions2: {
-                      candidates: [
-                        { url: "https://scontent.cdninstagram.com/v/thumb_n.jpg", width: 150, height: 150 },
-                        { url: "https://scontent.cdninstagram.com/v/full_n.jpg", width: 1080, height: 1350 },
-                      ],
-                    },
-                    user: { username: "someone", full_name: "Some One" },
+            var data = {
+              items: [
+                {
+                  pk: "3141592653589793",
+                  code: "CODE123",
+                  media_type: 1,
+                  taken_at: 1700000000,
+                  image_versions2: {
+                    candidates: [
+                      { url: "https://scontent.cdninstagram.com/v/thumb_n.jpg", width: 150, height: 150 },
+                      { url: "https://scontent.cdninstagram.com/v/full_n.jpg", width: 1080, height: 1350 },
+                    ],
                   },
-                ],
-              },
+                  user: { username: "someone", full_name: "Some One" },
+                },
+              ],
             };
+            if (path === "/api/v1/feed/reels_media/") {
+              throw Object.assign(new Error("We're sorry, but something went wrong. Please try again."), {
+                name: "AjaxError",
+                statusCode: 500,
+              });
+            }
+            if (path === "/api/v1/feed/user/1563074505/story/") {
+              if (window.__storyFeedFailure) {
+                throw Object.assign(new Error("Stories are temporarily unavailable."), { statusCode: 503 });
+              }
+              return { data: { reel: { id: "1563074505", user: data.items[0].user, items: data.items } } };
+            }
+            if (!path.includes("/api/v1/media/")) throw new Error("unexpected API call " + path);
+            return { data: data };
           },
         };
       });
@@ -109,6 +120,11 @@
           return h("button", { className: "ig-save" }, "Save " + props.postId);
         };
       });
+      __d("PolarisStoriesV3ReelPlayerContainer.react", [], function (g, r, d, n, l, module, exports) {
+        exports.default = function StoryPlayer() {
+          return h("div", { className: "ig-story" }, "Story player");
+        };
+      });
     </script>
   </head>
   <body>
@@ -118,6 +134,7 @@
         var RouteContext = require("CometRouterRouteContext");
         var FeedNavItem = require("PolarisFeedNavItem.react").default;
         var SaveButton = require("PolarisSaveButton.react").default;
+        var StoryPlayer = require("PolarisStoriesV3ReelPlayerContainer.react").default;
         var route = { rootView: { props: { id: "999", page_logging: { name: "profilePage" } } }, params: { username: "someone" } };
         require("ReactDOM-prod.classic")
           .createRoot(document.getElementById("root"))
@@ -125,6 +142,9 @@
             h(RouteContext.Provider, { value: route },
               h("nav", { id: "nav" }, h(FeedNavItem)),
               h("main", { id: "post" }, h(SaveButton, { postId: "3141592653589793" })),
+              location.pathname.startsWith("/stories/") &&
+                h("div", { id: "story", style: { width: 400, height: 600 } },
+                  h(StoryPlayer, { reel: { __id: "XDTReelDict:1563074505" } })),
             ),
           );
         try {
