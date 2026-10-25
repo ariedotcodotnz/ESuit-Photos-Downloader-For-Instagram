@@ -410,6 +410,68 @@ try {
   );
   await page.locator("button.ant-modal-close").click();
 
+  // Reproduce highlight downloads with automatic author/type folders. The
+  // second highlight has an emoji-only title and contains the same story.
+  await worker.evaluate(async () => {
+    const { settings } = await chrome.storage.local.get("settings");
+    await chrome.storage.local.set({
+      settings: { ...settings, isGenFolder: true, isSplitFolder: true, isSkipDownloadedFile: false },
+    });
+  });
+  await page.goto("https://www.instagram.com/stories/highlights/777/");
+  await storyIcon.waitFor({ timeout: 15000 });
+  await page.evaluate(() => {
+    window.__highlightWrites = [];
+    const directory = (path = []) => ({
+      requestPermission: async () => "granted",
+      getDirectoryHandle: async (name) => {
+        if (!name || /[/:]/.test(name)) throw new Error("Invalid folder name: " + JSON.stringify(name));
+        return directory([...path, name]);
+      },
+      getFileHandle: async (name) => ({
+        createWritable: async () => ({
+          write: async () => {},
+          close: async () => {
+            window.__highlightWrites.push([...path, name].join("/"));
+          },
+        }),
+      }),
+    });
+    window.showDirectoryPicker = async () => directory();
+  });
+  await storyIcon.click();
+  await page.getByText("Download Successful").first().waitFor({ timeout: 10000 });
+  check(
+    "quick highlight download uses the author, type and highlight title folders",
+    await worker.evaluate(
+      () => globalThis.__requestedDownloads.at(-1)?.filename === "IG Album Downloader/someone/highlights/Trips/1.jpg",
+    ),
+  );
+  await page.mouse.move(0, 0);
+  await storyIcon.hover();
+  await page.getByRole("button", { name: "Select to Download" }).click();
+  await page.getByRole("checkbox", { name: "Select All", exact: true }).waitFor({ timeout: 10000 });
+  await page.getByRole("button", { name: "Select a Folder to Download" }).click();
+  await page.waitForFunction(() => window.__highlightWrites.length === 1);
+  check(
+    "selected highlight files write successfully with type folders enabled",
+    (await page.evaluate(() => window.__highlightWrites[0])) === "someone/highlights/Trips/1.jpg",
+  );
+  await page.locator("button.ant-modal-close").click();
+  await page.evaluate(() => {
+    window.__highlightWrites = [];
+  });
+  await page.getByRole("button", { name: "Download Highlights", exact: true }).click();
+  await page.getByRole("button", { name: "Select a Folder to Download" }).click();
+  await page.getByRole("button", { name: "ReDownload", exact: true }).waitFor({ timeout: 15000 });
+  check(
+    "bulk highlights create valid title and id folders for a shared story",
+    JSON.stringify(await page.evaluate(() => window.__highlightWrites)) ===
+      JSON.stringify(["someone/highlights/Trips/1.jpg", "someone/highlights/888/2.jpg"]),
+  );
+  await page.screenshot({ path: join(out, "highlight-type-folders.png") });
+  await page.locator("button.ant-modal-close").click();
+
   const finalErrors = consoleErrors.filter((e) => !/favicon|Warning:/i.test(e));
   check("still no page errors after downloads", finalErrors.length === 0, finalErrors.join(" | ").slice(0, 500));
 

@@ -1,5 +1,4 @@
 import { fetchMediaInfo, fetchReelsMedia } from "../ig/instapi";
-import { highlightState } from "../ig/route";
 import type { FetchContext, FetchQuery, FetchResult } from "../media/types";
 
 /** Downloads several highlight reels, one reel per page. */
@@ -9,8 +8,7 @@ export function createHighlightsFetcher(highlightIds: string[]): FetchQuery {
     const id = remaining.shift();
     if (!id) return { items: [], hasMore: false, nextParams: null };
 
-    const { reels, items } = await fetchReelsMedia([id]);
-    highlightState.current = { id, name: reels.find((reel) => reel.id === id)?.title ?? reels[0]?.title };
+    const { items } = await fetchReelsMedia([id]);
     return { items, hasMore: remaining.length > 0, nextParams: { remaining } };
   };
 }

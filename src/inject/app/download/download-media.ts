@@ -74,7 +74,7 @@ export function folderSegments(
   if (item.saveFolderPath?.length) return item.saveFolderPath;
   const base = isGenFolder ? folderName || item.authorName : "";
   if (!base) return [];
-  return isSplitFolder ? [base, ...getSplitFolderSegments()] : [base];
+  return isSplitFolder ? [base, ...getSplitFolderSegments(item.highlight)] : [base];
 }
 
 async function convertedImageUrl(url: string, format: Exclude<ImageFormat, ImageFormat.ORIGINAL>): Promise<string> {
@@ -138,9 +138,9 @@ export async function downloadMediaItem(options: DownloadMediaOptions): Promise<
   }
   filename = sanitizeFilename(filename);
 
-  const folders = folderSegments(item, options.isGenFolder, options.isSplitFolder, options.folderName).map(
-    sanitizeFolderName,
-  );
+  const folders = folderSegments(item, options.isGenFolder, options.isSplitFolder, options.folderName)
+    .map(sanitizeFolderName)
+    .filter(Boolean);
   filename = uniqueFilename(filename, folders);
 
   let url = sourceUrl;

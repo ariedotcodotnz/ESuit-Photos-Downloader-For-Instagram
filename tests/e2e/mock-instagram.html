@@ -73,7 +73,7 @@
       });
       __d("PolarisInstapi", [], function (g, r, d, n, l, module) {
         module.exports = {
-          apiGet: async function (path) {
+          apiGet: async function (path, options) {
             window.__apiCalls = (window.__apiCalls || []).concat(path);
             if (path === "/api/v1/users/50230154343/info/") {
               throw Object.assign(new Error(""), {
@@ -110,6 +110,16 @@
               } };
             }
             if (path === "/api/v1/feed/reels_media/") {
+              var reelId = options && options.query && options.query.reel_ids[0];
+              if (reelId && reelId.startsWith("highlight:")) {
+                var highlight = {
+                  id: reelId,
+                  title: reelId === "highlight:777" ? "Trips" : "🌴",
+                  user: data.items[0].user,
+                  items: data.items,
+                };
+                return { data: { reels: { [reelId]: highlight } } };
+              }
               throw Object.assign(new Error("We're sorry, but something went wrong. Please try again."), {
                 name: "AjaxError",
                 statusCode: 500,
@@ -142,6 +152,11 @@
           return h("div", { className: "ig-story" }, "Story player");
         };
       });
+      __d("PolarisStoriesV3HighlightsRoot.react", [], function (g, r, d, n, l, module, exports) {
+        exports.default = function HighlightsRoot() {
+          return h("div", null, "Highlights viewer");
+        };
+      });
       __d("PolarisProfileAvatar.next.react", [], function (g, r, d, n, l, module, exports) {
         exports.default = function ProfileAvatar() {
           if (new URLSearchParams(location.search).has("emptyAvatar")) return h("span", null, "No picture loaded");
@@ -164,6 +179,8 @@
         var FeedNavItem = require("PolarisFeedNavItem.react").default;
         var SaveButton = require("PolarisSaveButton.react").default;
         var StoryPlayer = require("PolarisStoriesV3ReelPlayerContainer.react").default;
+        var HighlightsRoot = require("PolarisStoriesV3HighlightsRoot.react").default;
+        var viewingHighlights = location.pathname.includes("/highlights/");
         var ProfileAvatar = require("PolarisProfileAvatar.next.react").default;
         var avatarUser = { pk: "50230154343" };
         var avatarParams = new URLSearchParams(location.search);
@@ -185,7 +202,8 @@
               h("div", { id: "profile-avatar" }, h(ProfileAvatar, { user: avatarUser })),
               location.pathname.startsWith("/stories/") &&
                 h("div", { id: "story", style: { width: 400, height: 600 } },
-                  h(StoryPlayer, { reel: { __id: "XDTReelDict:1563074505" } })),
+                  h(StoryPlayer, { reel: { __id: viewingHighlights ? "XDTReelDict:highlight:777" : "XDTReelDict:1563074505" } })),
+              viewingHighlights && h(HighlightsRoot, { queries: { query: { variables: { reel_ids: ["highlight:777", "highlight:888"] } } } }),
             ),
           );
         try {

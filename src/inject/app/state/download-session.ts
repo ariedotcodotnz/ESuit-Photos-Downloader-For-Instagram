@@ -42,8 +42,9 @@ const initialState = (): DownloadSessionState => ({
   resumedFrom: null,
 });
 
-/** A media file can occur once in each saved collection's destination. */
-export const mediaItemKey = (item: MediaItem): string => JSON.stringify([item.id, item.saveFolderPath ?? []]);
+/** A media file can occur in several saved collections or highlight reels. */
+export const mediaItemKey = (item: MediaItem): string =>
+  JSON.stringify([item.id, item.saveFolderPath ?? [], item.highlight?.id ?? null]);
 
 /**
  * Mutable state of one bulk-download session. The async download loop reads

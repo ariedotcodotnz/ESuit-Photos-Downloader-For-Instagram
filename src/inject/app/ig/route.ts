@@ -1,4 +1,5 @@
 import { sanitizeFolderName } from "@/shared/filename";
+import type { HighlightInfo } from "../media/types";
 import type { IgRouteContextValue } from "./modules";
 
 /**
@@ -20,22 +21,16 @@ export function getPageName(route: IgRouteContextValue | null = currentRoute): s
   return route?.rootView?.props?.page_logging?.name;
 }
 
-export interface HighlightInfo {
-  /** e.g. `highlight:17890000000000000` */
-  id: string;
-  name?: string;
-}
-
-/** The highlight reel currently being bulk-downloaded (for folder names). */
-export const highlightState: { current: HighlightInfo | null; currentItemId?: string } = { current: null };
+/** The visible story item, captured by the story player hook. */
+export const highlightState: { currentItemId?: string } = {};
 
 /** Sub-folders used by "Split-Folder": posts / reels / tagged / saved / highlights. */
-export function getSplitFolderSegments(): string[] {
+export function getSplitFolderSegments(highlight?: HighlightInfo): string[] {
   const { href } = window.location;
-  if (href.includes("/highlights/")) {
-    const highlight = highlightState.current;
-    let name = sanitizeFolderName(highlight?.name ?? "");
-    if (!name.trim()) name = (highlight?.id ?? "").replace("highlight", "");
+  if (highlight || href.includes("/highlights/")) {
+    const id = highlight?.id ?? href.match(/\/highlights\/([^/?#]+)/)?.[1] ?? "";
+    const name =
+      sanitizeFolderName(highlight?.name ?? "") || sanitizeFolderName(id.replace(/^highlight:/, "")) || "untitled";
     return ["highlights", name];
   }
   if (href.includes("/stories/")) return ["highlights", "latest"];

@@ -1,5 +1,11 @@
 export type MediaStatus = "waiting" | "done" | "skip" | "error";
 
+export interface HighlightInfo {
+  /** e.g. `highlight:17890000000000000` */
+  id: string;
+  name?: string;
+}
+
 /** DASH `SegmentBase` of a single-file (on-demand profile) representation. */
 export interface SegmentBase {
   /** Byte range of the `sidx` box, e.g. `"831-1234"`. */
@@ -48,6 +54,8 @@ export interface MediaItem {
   audioTitle?: string;
   /** Overrides the generated folder structure, e.g. `["Saved", "Travel"]`. */
   saveFolderPath?: string[];
+  /** Reel metadata used to name highlight folders independently of the viewer. */
+  highlight?: HighlightInfo;
 }
 
 /** One page of results from any of the album fetchers. */

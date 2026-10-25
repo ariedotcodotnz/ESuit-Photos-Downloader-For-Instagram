@@ -53,13 +53,20 @@ export async function fetchReelsMedia(reelIds: string[]): Promise<{ reels: IgRee
       if (data.reel) reels.push(data.reel);
     }
   }
-  const items = reels.flatMap((reel) =>
-    toMediaItems(
+  const items = reels.flatMap((reel) => {
+    const mediaItems = toMediaItems(
       (reel.items ?? []).map((media) =>
         withAuthor(media, { authorName: reel.user?.username, fullName: reel.user?.full_name }),
       ),
-    ),
-  );
+    );
+    const id = String(reel.id);
+    const highlightId = id.startsWith("highlight:")
+      ? id
+      : reelIds.find((requested) => requested.startsWith("highlight:") && requested.slice("highlight:".length) === id);
+    return highlightId
+      ? mediaItems.map((item) => ({ ...item, highlight: { id: highlightId, name: reel.title } }))
+      : mediaItems;
+  });
   return { reels, items };
 }
 
