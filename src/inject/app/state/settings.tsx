@@ -38,7 +38,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const update = useCallback((patch: Partial<UserSettings>) => {
-    setSettings((current) => applySettingsPatch(current, patch));
+    // A filename edit can flush on blur immediately before Save's click.
+    // Keep the value used by save() current before React renders again.
+    const next = applySettingsPatch(settingsRef.current, patch);
+    settingsRef.current = next;
+    setSettings(next);
   }, []);
 
   const save = useCallback(() => background.saveSettings(settingsRef.current), []);

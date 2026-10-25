@@ -122,10 +122,13 @@ try {
   // Round-trip through the background: save settings from the page.
   await page.getByText("⚡ Full Speed").click();
   await page.getByRole("button", { name: "I understand" }).click();
+  const customRule = "custom_-**username code**-_-**timestamp**-";
+  await page.locator(".tagify__input").fill(customRule);
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await page.getByText("Saved successfully.").waitFor({ timeout: 10000 });
   const stored = await worker.evaluate(async () => (await chrome.storage.local.get("settings")).settings);
   check("settings saved through the background", stored?.isFullSpeed === true, JSON.stringify(stored).slice(0, 80));
+  check("saving immediately keeps the latest custom filename rule", stored?.filenameFormats === customRule);
 
   const relevantErrors = consoleErrors.filter((e) => !/favicon|Warning:/i.test(e));
   check("no page errors", relevantErrors.length === 0, relevantErrors.join(" | ").slice(0, 500));
@@ -151,7 +154,7 @@ try {
     "post download requested with templated path",
     requested.length === 1 &&
       requested[0].url === "https://scontent.cdninstagram.com/v/full_n.jpg" &&
-      requested[0].filename === "IG Album Downloader/full_n.jpg",
+      requested[0].filename === "IG Album Downloader/custom_someone_1700000000.jpg",
     JSON.stringify(requested),
   );
   check(
@@ -187,6 +190,12 @@ try {
     calls.some((p) => p.includes(`/api/v1/media/${expectedId}/info/`)),
     calls.join(","),
   );
+  check(
+    "hotkey uses the saved custom filename without selecting a folder",
+    await worker.evaluate(
+      () => globalThis.__requestedDownloads.at(-1)?.filename === "IG Album Downloader/custom_someone_1700000000.jpg",
+    ),
+  );
 
   // Reproduce a bulk-story HTTP 500, then exercise the selection view when
   // both endpoints fail. A retry should recover without reopening the modal.
@@ -205,7 +214,7 @@ try {
   check(
     "fallback story is sent to browser downloads",
     storyDownloads.at(-1)?.url === "https://scontent.cdninstagram.com/v/full_n.jpg" &&
-      storyDownloads.at(-1)?.filename === "IG Album Downloader/full_n.jpg",
+      storyDownloads.at(-1)?.filename === "IG Album Downloader/custom_someone_1700000000.jpg",
   );
 
   await page.evaluate(() => {
@@ -415,7 +424,13 @@ try {
   await worker.evaluate(async () => {
     const { settings } = await chrome.storage.local.get("settings");
     await chrome.storage.local.set({
-      settings: { ...settings, isGenFolder: true, isSplitFolder: true, isSkipDownloadedFile: false },
+      settings: {
+        ...settings,
+        isGenFolder: true,
+        isSplitFolder: true,
+        isSkipDownloadedFile: false,
+        filenameFormats: "highlight_-**username code**-_-**file id**-",
+      },
     });
   });
   await page.goto("https://www.instagram.com/stories/highlights/777/");
@@ -442,9 +457,11 @@ try {
   await storyIcon.click();
   await page.getByText("Download Successful").first().waitFor({ timeout: 10000 });
   check(
-    "quick highlight download uses the author, type and highlight title folders",
+    "quick highlight download uses custom filenames and the author, type and title folders",
     await worker.evaluate(
-      () => globalThis.__requestedDownloads.at(-1)?.filename === "IG Album Downloader/someone/highlights/Trips/1.jpg",
+      () =>
+        globalThis.__requestedDownloads.at(-1)?.filename ===
+        "IG Album Downloader/someone/highlights/Trips/highlight_someone_3141592653589793.jpg",
     ),
   );
   await page.mouse.move(0, 0);
@@ -455,7 +472,8 @@ try {
   await page.waitForFunction(() => window.__highlightWrites.length === 1);
   check(
     "selected highlight files write successfully with type folders enabled",
-    (await page.evaluate(() => window.__highlightWrites[0])) === "someone/highlights/Trips/1.jpg",
+    (await page.evaluate(() => window.__highlightWrites[0])) ===
+      "someone/highlights/Trips/highlight_someone_3141592653589793.jpg",
   );
   await page.locator("button.ant-modal-close").click();
   await page.evaluate(() => {
@@ -467,7 +485,10 @@ try {
   check(
     "bulk highlights create valid title and id folders for a shared story",
     JSON.stringify(await page.evaluate(() => window.__highlightWrites)) ===
-      JSON.stringify(["someone/highlights/Trips/1.jpg", "someone/highlights/888/2.jpg"]),
+      JSON.stringify([
+        "someone/highlights/Trips/highlight_someone_3141592653589793.jpg",
+        "someone/highlights/888/highlight_someone_3141592653589793.jpg",
+      ]),
   );
   await page.screenshot({ path: join(out, "highlight-type-folders.png") });
   await page.locator("button.ant-modal-close").click();
@@ -490,6 +511,29 @@ try {
     await options.locator(".ant-checkbox-wrapper-checked", { hasText: "Full Speed" }).isVisible(),
   );
   await options.screenshot({ path: join(out, "options.png"), fullPage: true });
+  const optionsRule = "options_-**username code**-_-**file id**-";
+  await options.locator(".tagify__input").fill(optionsRule);
+  await options.getByRole("button", { name: "Save", exact: true }).click();
+  await options.getByText("Saved successfully.").waitFor({ timeout: 10000 });
+  check(
+    "options page saves the latest filename rule immediately",
+    await worker.evaluate(
+      async (rule) => (await chrome.storage.local.get("settings")).settings.filenameFormats === rule,
+      optionsRule,
+    ),
+  );
+  await page.goto("https://www.instagram.com/someone/");
+  await page.locator("#post .download-single-button img").first().waitFor({ timeout: 15000 });
+  await page.locator("#post .download-single-button img").first().click();
+  await page.getByText("Download Successful").first().waitFor({ timeout: 10000 });
+  check(
+    "direct download applies filename changes saved on the extension options page",
+    await worker.evaluate(
+      () =>
+        globalThis.__requestedDownloads.at(-1)?.filename ===
+        "IG Album Downloader/someone/posts/options_someone_3141592653589793.jpg",
+    ),
+  );
 } finally {
   await context.close();
 }

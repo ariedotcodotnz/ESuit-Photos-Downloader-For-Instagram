@@ -96,7 +96,7 @@ export function FilenameRuleInput({
     });
     tagifyRef.current = tagify;
 
-    const emit = debounce(() => {
+    const emitNow = () => {
       let value = stripInvisibleChars(tagify.getMixedTagsAsString().trim());
       if (value.length === 0) {
         value = presets[0] ?? "";
@@ -104,8 +104,15 @@ export function FilenameRuleInput({
       }
       emittedRef.current = value;
       onChangeRef.current(value);
-    }, 600);
+    };
+    const emit = debounce(emitNow, 600);
     tagify.on("change", emit);
+    // Save and folder-picker buttons blur the editor before their click runs.
+    // Read the DOM now: Tagify's own change event can still be pending.
+    tagify.on("blur", () => {
+      emit.cancel();
+      emitNow();
+    });
 
     return () => {
       emit.cancel();
