@@ -24,6 +24,21 @@ libraries and a map from its minified code to this source tree are in
 
 ## Getting started
 
+### Install a release
+
+1. Open the [latest release](https://github.com/ariedotcodotnz/ESuit-Photos-Downloader-For-Instagram/releases/latest)
+   and download `ig-album-downloader-v<version>-chromium.zip` from **Assets**.
+2. Extract the ZIP to a permanent folder.
+3. Open `chrome://extensions` in your Chromium browser and enable **Developer mode**.
+4. Click **Load unpacked** and select the extracted folder containing `manifest.json`.
+5. Open instagram.com while logged in.
+
+Keep the extracted folder: the browser loads the extension from it. To update, extract the next release
+into that folder and click **Reload** on the extensions page. Requires Chrome 111+.
+See Chrome's [unpacked extension instructions](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked).
+
+### Build from source
+
 ```sh
 npm ci
 npm run build          # → dist/
@@ -37,8 +52,35 @@ Then open instagram.com while logged in. Requires Chrome 111+.
 | `npm run dev`      | Rebuild all targets on change (reload the extension afterwards)                                                              |
 | `npm run check`    | Typecheck, lint, unit tests and build                                                                                        |
 | `npm test`         | Unit tests (Vitest), including parity tests against the original bundle                                                      |
-| `npm run test:e2e` | Builds, loads the extension in Chromium and drives it on a mock Instagram page (needs Playwright, see `tests/e2e/smoke.mjs`) |
+| `npm run test:e2e` | Builds, loads the extension in Chromium and drives it on a mock Instagram page (run `npx playwright install chromium` first) |
 | `npm run icons`    | Regenerates `public/icons` (Python + Pillow)                                                                                 |
+
+### Automated releases
+
+[GitHub Actions](https://github.com/ariedotcodotnz/ESuit-Photos-Downloader-For-Instagram/actions/workflows/extension.yml)
+typechecks, lints, runs the unit tests, builds every extension target, and loads the result in Chromium
+for the browser smoke test on pull requests and pushes to `main`.
+
+After those checks pass on `main`, the workflow publishes a GitHub release if `v<package.json version>`
+has not been published yet. The initial run publishes the current version. Each release includes the
+built Chromium ZIP, its SHA-256 checksum, installation instructions, and generated change notes.
+Only `dist/` contents are packaged, with `manifest.json` at the root of the ZIP.
+
+To publish the next version:
+
+```sh
+npm version patch --no-git-tag-version  # or minor / major; updates package.json and package-lock.json
+git add package.json package-lock.json
+git commit -m "Bump extension version"
+git push origin main
+```
+
+Use three numeric version components, such as `1.0.1`, without a prerelease suffix. Each component must
+be at most 65535. The manifest version is generated from `package.json` during the build.
+Pushing more commits with an already published version runs the checks and keeps the existing release.
+You can also select **Run workflow** on `main` to retry a release. No additional repository secrets are
+needed: only the publishing job receives `contents: write` for the built-in `GITHUB_TOKEN`.
+Dependabot checks the pinned GitHub Actions for updates weekly.
 
 ## How it works
 

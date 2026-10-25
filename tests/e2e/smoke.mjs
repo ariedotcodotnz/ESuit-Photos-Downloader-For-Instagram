@@ -3,7 +3,7 @@
 // system with real React, then drives the injected UI.
 //
 // Usage: npm run test:e2e   (builds first; screenshots go to $SMOKE_OUT if set)
-// Needs Playwright with Chromium: `npm i -D playwright && npx playwright install chromium`,
+// Install Chromium after `npm ci`: `npx playwright install chromium`,
 // or a global installation reachable through NODE_PATH.
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
