@@ -1,0 +1,138 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Mock Instagram</title>
+    <script src="/static/react.js"></script>
+    <script src="/static/react-dom.js"></script>
+    <script>
+      // Minimal emulation of Meta's module system (__d / require / requireLazy / __debug).
+      (function () {
+        var modules = {};
+        window.__d = function (name, deps, factory) {
+          modules[name] = { factory: factory, exports: undefined, initialized: false, depPosition: 4 };
+        };
+        function req(name) {
+          var record = modules[name];
+          if (!record) throw new Error("Module not found: " + name);
+          if (!record.initialized) {
+            record.initialized = true;
+            var module = { exports: {}, dependencies: [] };
+            record.factory(window, req, req, req, null, module, module.exports);
+            record.exports = module.exports;
+          }
+          return record.exports;
+        }
+        window.require = req;
+        window.requireLazy = function (names, callback) {
+          setTimeout(function () {
+            callback.apply(null, names.map(req));
+          }, 0);
+        };
+        window.__modules = modules;
+      })();
+
+      var h = React.createElement;
+      __d("__debug", [], function (g, r, d, n, l, module) {
+        module.exports = { modulesMap: window.__modules };
+      });
+      __d("react", [], function (g, r, d, n, l, module) {
+        module.exports = React;
+      });
+      __d("ReactDOM-prod.classic", [], function (g, r, d, n, l, module) {
+        module.exports = ReactDOM;
+      });
+      __d("CometErrorBoundary.react", [], function (g, r, d, n, l, module) {
+        class Boundary extends React.Component {
+          constructor(props) {
+            super(props);
+            this.state = { error: null };
+          }
+          static getDerivedStateFromError(error) {
+            return { error: error };
+          }
+          render() {
+            return this.state.error ? this.props.fallback(this.state.error) : this.props.children;
+          }
+        }
+        module.exports = Boundary;
+      });
+      __d("PolarisIGTheme.react", [], function (g, r, d, n, l, module) {
+        module.exports = { isDarkMode: () => false };
+      });
+      __d("PolarisConfig", [], function (g, r, d, n, l, module) {
+        module.exports = { getViewerId: () => "123", getCSRFToken: () => "csrf", getIGAppID: () => "936619743392459" };
+      });
+      __d("CometRouterRouteContext", [], function (g, r, d, n, l, module) {
+        module.exports = React.createContext(null);
+      });
+      __d("PolarisNavigationItem.react", [], function (g, r, d, n, l, module) {
+        module.exports = function NavigationItem(props) {
+          return h("a", { className: "ig-nav-item", onClick: props.onClick }, props.icon, h("span", null, props.label));
+        };
+      });
+      __d("PolarisInstapi", [], function (g, r, d, n, l, module) {
+        module.exports = {
+          apiGet: async function (path) {
+            window.__apiCalls = (window.__apiCalls || []).concat(path);
+            if (!path.includes("/api/v1/media/")) throw new Error("unexpected API call " + path);
+            return {
+              data: {
+                items: [
+                  {
+                    pk: "3141592653589793",
+                    code: "CODE123",
+                    media_type: 1,
+                    taken_at: 1700000000,
+                    image_versions2: {
+                      candidates: [
+                        { url: "https://scontent.cdninstagram.com/v/thumb_n.jpg", width: 150, height: 150 },
+                        { url: "https://scontent.cdninstagram.com/v/full_n.jpg", width: 1080, height: 1350 },
+                      ],
+                    },
+                    user: { username: "someone", full_name: "Some One" },
+                  },
+                ],
+              },
+            };
+          },
+        };
+      });
+      // A patch target, defined ES-module style like Instagram's Polaris components.
+      __d("PolarisFeedNavItem.react", [], function (g, r, d, n, l, module, exports) {
+        exports.default = function PolarisFeedNavItem() {
+          return h("a", { className: "ig-home" }, "Home");
+        };
+      });
+      __d("PolarisSaveButton.react", [], function (g, r, d, n, l, module, exports) {
+        exports.default = function PolarisSaveButton(props) {
+          return h("button", { className: "ig-save" }, "Save " + props.postId);
+        };
+      });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      window.addEventListener("DOMContentLoaded", function () {
+        var RouteContext = require("CometRouterRouteContext");
+        var FeedNavItem = require("PolarisFeedNavItem.react").default;
+        var SaveButton = require("PolarisSaveButton.react").default;
+        var route = { rootView: { props: { id: "999", page_logging: { name: "profilePage" } } }, params: { username: "someone" } };
+        require("ReactDOM-prod.classic")
+          .createRoot(document.getElementById("root"))
+          .render(
+            h(RouteContext.Provider, { value: route },
+              h("nav", { id: "nav" }, h(FeedNavItem)),
+              h("main", { id: "post" }, h(SaveButton, { postId: "3141592653589793" })),
+            ),
+          );
+        try {
+          window.__evalAllowed = new Function("return true")();
+        } catch (e) {
+          window.__evalAllowed = false;
+        }
+      });
+    </script>
+  </body>
+</html>

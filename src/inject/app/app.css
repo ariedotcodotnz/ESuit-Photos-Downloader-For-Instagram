@@ -1,0 +1,17 @@
+/* Global styles for the UI injected into instagram.com. */
+
+/* Keep room for the download button inside the reels player footer. */
+.reels-player-footer-box > div {
+  padding-right: 48px !important;
+}
+
+/* Instagram's reset rounds the checkmark of antd checkboxes. */
+.ant-checkbox-inner:after {
+  border-radius: 0 !important;
+}
+
+/* Progress messages (FFmpeg, DASH downloads) read better left-aligned. */
+.ant-message-notice-wrapper:has(.igdl-progress-message) {
+  text-align: left;
+  padding-left: 40px;
+}

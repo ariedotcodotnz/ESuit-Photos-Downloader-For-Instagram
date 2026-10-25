@@ -1,0 +1,90 @@
+/* Overrides for Tagify in the filename rule editor (from the original extension). */
+.tagify-wrapper {
+  font-size: 14px;
+}
+.tagify-wrapper .eg-txt {
+  display: inline-block;
+  max-width: 330px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  vertical-align: top;
+}
+.tagify-wrapper .bottom-bar {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+}
+.tagify-wrapper.dark .tagify {
+  border-color: #424242;
+}
+.tagify-wrapper.dark .tagify__input:before,
+.tagify-wrapper.dark .tagify__input,
+.tagify-wrapper.dark .tagify-example {
+  color: #b0b3b8;
+}
+.tagify {
+  padding-left: 4px;
+  border-radius: 6px;
+  border-color: #d9d9d9;
+  font-size: 14px;
+  min-width: 384px;
+  max-width: 384px;
+  overflow: hidden;
+}
+.tagify.tagify--focus {
+  border-color: #4096ff !important;
+  box-shadow: 0 0 0 2px #0591ff1a;
+  outline: 0;
+}
+.tagify .tagify__tag-text,
+.tagify .tagify__input {
+  white-space: nowrap !important;
+}
+.tagify .tagify__tag-text br,
+.tagify .tagify__input br {
+  display: none !important;
+}
+.tagify .tagify__tag-text *,
+.tagify .tagify__input * {
+  display: inline;
+  white-space: nowrap;
+}
+.tagify-dropdown .ant-dropdown-menu {
+  overflow: auto;
+  overflow-x: hidden;
+  max-height: 240px;
+}
+.tagify-dropdown .tagify__tag,
+.tagify .tagify__tag {
+  display: inline-flex;
+  transition: none;
+  margin: 0 4px !important;
+  transform: translateY(-1px);
+}
+.tagify-dropdown .tagify__tag x,
+.tagify .tagify__tag x {
+  display: none;
+}
+.tagify-dropdown .tagify__tag > div,
+.tagify .tagify__tag > div {
+  background: #1677ff;
+  color: #fff;
+  font-size: 12px;
+  line-height: 20px;
+  border-radius: 4px;
+  padding: 0 7px;
+  font-family: -apple-system, sans-serif;
+}
+.tagify-dropdown .tagify__tag > div:before,
+.tagify .tagify__tag > div:before {
+  display: none;
+}
+.tagify-example {
+  width: 100%;
+  padding-top: 4px;
+  font-size: 11px;
+}
+.tagify-example .eg {
+  padding-right: 8px;
+  opacity: 0.8;
+}

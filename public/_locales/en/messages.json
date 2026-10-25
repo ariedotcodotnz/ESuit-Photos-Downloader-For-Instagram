@@ -1,0 +1,10 @@
+{
+  "name": {
+    "message": "IG Album Downloader",
+    "description": "Extension name. Keep in sync with APP_NAME in src/shared/constants.ts."
+  },
+  "description": {
+    "message": "Bulk-download photos, videos and reels from Instagram profiles, saved collections, highlights and stories.",
+    "description": "Extension description shown in the Chrome Web Store and chrome://extensions."
+  }
+}
