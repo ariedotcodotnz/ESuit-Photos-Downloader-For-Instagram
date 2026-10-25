@@ -48,8 +48,7 @@ function startPage(context: FetchContext<ProfilePage>, query: GraphqlQuery): Pro
 
 const isFirstPage = (context: FetchContext<ProfilePage>, page: ProfilePage) => !context.nextParams && !page.cursor;
 
-const saveable = (strategy: FetchStrategy, cursor: string | null | undefined) =>
-  cursor ? encodeCursor(strategy, cursor) : null;
+const saveable = (strategy: FetchStrategy, cursor: string | null | undefined) => encodeCursor(strategy, cursor ?? "");
 
 /** Full name from Relay's store when Instagram has loaded the profile. */
 function profileFullName(target: ProfileTarget, fallback?: string): string {
@@ -69,7 +68,8 @@ async function fetchV1Page(
     items: toMediaItems(select(feed).map((media) => withAuthor(media))),
     hasMore: !!feed.more_available,
     nextParams: { strategy: "rest", cursor: feed.next_max_id ?? null },
-    cursorToSave: saveable("rest", cursor),
+    replayCursor: saveable("rest", cursor),
+    cursorToSave: feed.more_available ? saveable("rest", feed.next_max_id) : null,
   };
 }
 
@@ -94,7 +94,8 @@ export async function fetchProfilePosts(
         items: toMediaItems(nodes.map((node) => ({ ...node, authorName: target.username, fullName }))),
         hasMore: !!connection.page_info?.has_next_page,
         nextParams: { strategy: "graphql", cursor: connection.page_info?.end_cursor ?? null },
-        cursorToSave: saveable("graphql", page.cursor),
+        replayCursor: saveable("graphql", page.cursor),
+        cursorToSave: connection.page_info?.has_next_page ? saveable("graphql", connection.page_info.end_cursor) : null,
       };
     },
     () => fetchV1Page(`/api/v1/feed/user/${target.id}/`, page, (feed) => feed.items ?? []),
@@ -120,7 +121,8 @@ export async function fetchProfileReels(
       items,
       hasMore: pendingIds.length > 0 || !!page.hasMorePages,
       nextParams: { ...page, pendingIds },
-      cursorToSave: saveable(page.strategy, page.listingCursor),
+      replayCursor: saveable(page.strategy, page.listingCursor),
+      cursorToSave: pendingIds.length === 0 && page.hasMorePages ? saveable(page.strategy, page.cursor) : null,
     };
   }
 
@@ -145,7 +147,9 @@ export async function fetchProfileReels(
           pendingIds,
           hasMorePages,
         },
-        cursorToSave: saveable("graphql", page.cursor),
+        replayCursor: saveable("graphql", page.cursor),
+        cursorToSave:
+          pendingIds.length === 0 && hasMorePages ? saveable("graphql", connection.page_info?.end_cursor) : null,
       };
     },
     // REST fallback: the reels that also appear on the profile feed.
@@ -196,16 +200,24 @@ export async function fetchProfileTagged(
     const placeholder = pendingItems.shift()!;
     const hasMore = pendingItems.length > 0 || !!page.hasMorePages;
     const nextParams: ProfilePage = { ...page, pendingItems };
-    const cursorToSave = saveable(page.strategy, page.listingCursor);
+    const replayCursor = saveable(page.strategy, page.listingCursor);
+    const cursorToSave = pendingItems.length === 0 && page.hasMorePages ? saveable(page.strategy, page.cursor) : null;
 
     if (context.isSkipDownloadedFile && context.isFileIdDownloaded?.(placeholder.id)) {
-      return { items: [{ ...placeholder, status: "skip" }], hasMore, nextParams, cursorToSave, skipWaiting: true };
+      return {
+        items: [{ ...placeholder, status: "skip" }],
+        hasMore,
+        nextParams,
+        replayCursor,
+        cursorToSave,
+        skipWaiting: true,
+      };
     }
     try {
-      return { items: await fetchMediaInfo(placeholder.id), hasMore, nextParams, cursorToSave };
+      return { items: await fetchMediaInfo(placeholder.id), hasMore, nextParams, replayCursor, cursorToSave };
     } catch (error) {
       console.error(error, placeholder);
-      return { items: [{ ...placeholder, status: "error" }], hasMore, nextParams, cursorToSave };
+      return { items: [{ ...placeholder, status: "error" }], hasMore, nextParams, replayCursor, cursorToSave };
     }
   }
 
@@ -230,7 +242,9 @@ export async function fetchProfileTagged(
           pendingItems,
           hasMorePages: !!connection.page_info?.has_next_page,
         },
-        cursorToSave: saveable("graphql", page.cursor),
+        replayCursor: saveable("graphql", page.cursor),
+        cursorToSave:
+          pendingItems.length === 0 && connection.page_info?.has_next_page ? saveable("graphql", endCursor) : null,
       };
     },
     () => fetchV1Page(`/api/v1/usertags/${target.id}/feed/`, page, (feed) => feed.items ?? []),

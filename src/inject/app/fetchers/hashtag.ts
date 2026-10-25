@@ -53,6 +53,7 @@ export async function fetchSearchResults(
     items: toMediaItems(collectMedia(response).map((media) => withAuthor(media))),
     hasMore: !!response.media_grid?.has_more,
     nextParams: { nextMaxId: response.media_grid?.next_max_id, rankToken: response.media_grid?.rank_token },
-    cursorToSave: context.nextParams?.nextMaxId,
+    replayCursor: nextMaxId ?? "",
+    cursorToSave: response.media_grid?.has_more ? response.media_grid.next_max_id : null,
   };
 }

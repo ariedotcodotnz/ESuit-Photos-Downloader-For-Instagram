@@ -100,6 +100,15 @@
                 },
               ],
             };
+            if (path === "/api/v1/feed/user/999/") {
+              if (window.__holdProfileFeed) {
+                await new Promise(function (resolve) { window.__releaseProfileFeed = resolve; });
+              }
+              return { data: {
+                items: [data.items[0], Object.assign({}, data.items[0], { pk: "3141592653589794" })],
+                more_available: false,
+              } };
+            }
             if (path === "/api/v1/feed/reels_media/") {
               throw Object.assign(new Error("We're sorry, but something went wrong. Please try again."), {
                 name: "AjaxError",

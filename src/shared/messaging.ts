@@ -4,7 +4,7 @@ import type { UserSettings } from "./settings";
 export interface ResumeCursor {
   /** Identifies the album/collection, e.g. `<userId>_posts`. */
   collectionToken: string;
-  /** Pagination cursor of the last page that was fully downloaded. */
+  /** Pagination cursor to fetch next, or a listing to replay after an interruption. */
   lastCursor: string;
   /** Number of files downloaded before the cursor (used to continue numbering). */
   lastIndex: number;

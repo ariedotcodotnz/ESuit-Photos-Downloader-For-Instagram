@@ -1,5 +1,5 @@
 import { App, Button, Space } from "antd";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { ResumeCursor } from "@/shared/messaging";
 import { resetFilenameCounter } from "../../download/download-media";
 import { closeProgressSoon } from "../../download/toast";
@@ -16,13 +16,14 @@ import { ViewLayout } from "../ViewLayout";
 
 interface AlbumFooterProps {
   step: DownloadStep;
+  stopping: boolean;
   resumeCursor: ResumeCursor | null;
   onStart(resumeFrom?: ResumeCursor): void;
   onStop(): void;
   onRestart(): void;
 }
 
-function AlbumFooter({ step, resumeCursor, onStart, onStop, onRestart }: AlbumFooterProps) {
+function AlbumFooter({ step, stopping, resumeCursor, onStart, onStop, onRestart }: AlbumFooterProps) {
   const { close } = useDownloaderModal();
   const closeButton = (
     <Button type="text" onClick={close}>
@@ -40,8 +41,8 @@ function AlbumFooter({ step, resumeCursor, onStart, onStop, onRestart }: AlbumFo
         </>
       )}
       {step === DownloadStep.DOWNLOADING && (
-        <Button type="primary" danger onClick={onStop}>
-          Stop
+        <Button type="primary" danger disabled={stopping} onClick={onStop}>
+          {stopping ? "Stopping…" : "Stop"}
         </Button>
       )}
       {step === DownloadStep.DONE && (
@@ -57,11 +58,12 @@ function AlbumFooter({ step, resumeCursor, onStart, onStop, onRestart }: AlbumFo
 /** Settings → progress → result flow for downloading a whole album. */
 export function DownloadAlbumView() {
   const session = useDownloadSessionStore();
-  const { step, downloadCount } = useDownloadSession();
+  const { step, downloadCount, stopRequested } = useDownloadSession();
+  const activeRun = useRef(false);
   const { save } = useSettings();
   const { collectionId } = useDownloaderModal();
   const { modal } = App.useApp();
-  const { resumeCursor, saveProgress, clearProgress } = useResumeCursor(collectionId, session);
+  const { resumeCursor, saveProgress, clearProgress } = useResumeCursor(collectionId);
   const { run } = useAlbumDownload({ saveProgress, clearProgress });
 
   useEffect(() => {
@@ -69,20 +71,25 @@ export function DownloadAlbumView() {
   }, [step]);
 
   const start = (resumeFrom?: ResumeCursor) => {
+    if (activeRun.current) return;
+    activeRun.current = true;
     void save();
     resetFilenameCounter();
     session.update({ stopRequested: false, step: DownloadStep.DOWNLOADING, resumedFrom: resumeFrom ?? null });
     run(resumeFrom?.lastCursor)
-      .then(() => session.update({ step: DownloadStep.DONE }))
       .catch((error: unknown) => {
         console.error(error);
-        // Stays on the progress view; the user can press Stop to finish.
         session.update({ stopRequested: true });
         showDownloadErrorModal(modal, error);
+      })
+      .finally(() => {
+        activeRun.current = false;
+        session.update({ step: DownloadStep.DONE });
       });
   };
 
   const restart = () => {
+    if (activeRun.current) return;
     resetFilenameCounter();
     session.reset();
   };
@@ -92,9 +99,10 @@ export function DownloadAlbumView() {
       footer={
         <AlbumFooter
           step={step}
+          stopping={stopRequested}
           resumeCursor={resumeCursor}
           onStart={start}
-          onStop={() => session.update({ stopRequested: true, step: DownloadStep.DONE })}
+          onStop={() => session.update({ stopRequested: true })}
           onRestart={restart}
         />
       }

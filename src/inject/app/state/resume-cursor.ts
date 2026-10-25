@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ResumeCursor } from "@/shared/messaging";
 import { background } from "../messaging";
-import type { DownloadSessionStore } from "./download-session";
 
 /** Saved progress of an interrupted bulk download of `collectionId`, and helpers to update it. */
-export function useResumeCursor(collectionId: string | undefined, session: DownloadSessionStore) {
+export function useResumeCursor(collectionId: string | undefined) {
   const [resumeCursor, setResumeCursor] = useState<ResumeCursor | null>(null);
 
   useEffect(() => {
@@ -18,23 +17,25 @@ export function useResumeCursor(collectionId: string | undefined, session: Downl
     };
   }, [collectionId]);
 
-  /** Records that everything fetched with `cursor` has been downloaded. */
+  /** Stores a cursor with the file index immediately before that cursor. */
   const saveProgress = useCallback(
-    (cursor: string) => {
+    async (cursor: string, lastIndex: number) => {
       if (!collectionId) return;
-      const { resumedFrom, downloadCount } = session.state;
-      if (resumedFrom?.lastCursor === cursor) return;
-      void background.setResumeCursor({
+      const checkpoint = {
         collectionToken: collectionId,
         lastCursor: cursor,
-        lastIndex: downloadCount + (resumedFrom?.lastIndex ?? 0),
-      });
+        lastIndex,
+      };
+      await background.setResumeCursor(checkpoint);
+      setResumeCursor({ ...checkpoint, lastUpdateAt: Math.floor(Date.now() / 1000) });
     },
-    [collectionId, session],
+    [collectionId],
   );
 
-  const clearProgress = useCallback(() => {
-    if (collectionId) void background.removeResumeCursor(collectionId);
+  const clearProgress = useCallback(async () => {
+    if (!collectionId) return;
+    await background.removeResumeCursor(collectionId);
+    setResumeCursor(null);
   }, [collectionId]);
 
   return { resumeCursor, saveProgress, clearProgress };

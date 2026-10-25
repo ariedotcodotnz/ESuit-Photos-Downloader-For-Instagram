@@ -39,7 +39,8 @@ async function fetchSavedPage(
     items: inFolder(toMediaItems((feed.items ?? []).map(({ media }) => withAuthor(media))), folder),
     hasMore: !!feed.more_available,
     nextParams: { maxId: feed.next_max_id },
-    cursorToSave: maxId,
+    replayCursor: maxId ?? "",
+    cursorToSave: feed.more_available ? feed.next_max_id : null,
   };
 }
 
@@ -54,7 +55,7 @@ export function fetchOwnCollection(
   collectionId: string,
   collectionName?: string,
 ): Promise<FetchResult<MaxIdPage>> {
-  const folderName = sanitizeFolderName(collectionName ?? getCurrentRoute()?.params?.slug ?? collectionId);
+  const folderName = sanitizeFolderName(collectionName ?? getCurrentRoute()?.params?.slug ?? "") || collectionId;
   return fetchSavedPage(`/api/v1/feed/collection/${collectionId}/posts/`, context, ["Saved", folderName]);
 }
 

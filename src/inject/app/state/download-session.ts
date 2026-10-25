@@ -42,6 +42,9 @@ const initialState = (): DownloadSessionState => ({
   resumedFrom: null,
 });
 
+/** A media file can occur once in each saved collection's destination. */
+export const mediaItemKey = (item: MediaItem): string => JSON.stringify([item.id, item.saveFolderPath ?? []]);
+
 /**
  * Mutable state of one bulk-download session. The async download loop reads
  * `state` directly (always current); React components re-render through
@@ -72,8 +75,13 @@ export class DownloadSessionStore {
 
   /** Adds items not seen before in this session and returns them. */
   appendItems(items: MediaItem[]): MediaItem[] {
-    const fresh = items.filter((item) => !this.itemIds.has(item.id));
-    for (const item of fresh) this.itemIds.add(item.id);
+    const fresh: MediaItem[] = [];
+    for (const item of items) {
+      const key = mediaItemKey(item);
+      if (this.itemIds.has(key)) continue;
+      this.itemIds.add(key);
+      fresh.push(item);
+    }
     this.state.items = [...this.state.items, ...fresh];
     this.state.totalFound += fresh.length;
     this.emit();
@@ -81,9 +89,10 @@ export class DownloadSessionStore {
   }
 
   /** Marks an item as handled. */
-  finishItem(id: string, status: MediaStatus): void {
-    const item = this.state.items.find((candidate) => candidate.id === id);
-    if (item) item.status = status;
+  finishItem(target: MediaItem, status: MediaStatus): void {
+    const item = this.state.items.find((candidate) => mediaItemKey(candidate) === mediaItemKey(target));
+    if (!item) return;
+    item.status = status;
     this.state.processedCount++;
     this.emit();
   }

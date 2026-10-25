@@ -56,8 +56,10 @@ export interface FetchResult<TNext = unknown> {
   hasMore: boolean;
   /** Passed back as `nextParams` to fetch the following page. */
   nextParams: TNext | null;
-  /** Cursor to persist so the download can resume after this page. */
+  /** Cursor to persist after all items on this page have been processed. */
   cursorToSave?: string | null;
+  /** Page/listing to replay on interruption, with its index saved before any files are processed. */
+  replayCursor?: string;
   /** Skip the anti-rate-limit pauses before the next page (no request was made). */
   skipWaiting?: boolean;
 }

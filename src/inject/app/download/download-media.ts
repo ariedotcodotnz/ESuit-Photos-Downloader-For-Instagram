@@ -5,6 +5,7 @@ import { getUrlExtension, stripExtension } from "@/shared/url";
 import { getSplitFolderSegments } from "../ig/route";
 import type { MediaItem } from "../media/types";
 import { background } from "../messaging";
+import { downloadHistory } from "../state/download-history";
 import { downloadDashStream } from "./dash";
 import { mergeVideoAndAudio } from "./ffmpeg";
 import { getDownloadDirectory, getSubdirectory, writeUrlToDirectory } from "./filesystem";
@@ -36,21 +37,25 @@ export interface DownloadMediaOptions {
 
 /** Same-named files within one session get a counter: `a.jpg`, `a.1.jpg`, `a.2.jpg`. */
 const filenameCounts = new Map<string, number>();
+const allocatedFilenames = new Set<string>();
 
 export function resetFilenameCounter(): void {
   filenameCounts.clear();
+  allocatedFilenames.clear();
 }
 
-function uniqueFilename(filename: string): string {
-  const count = filenameCounts.get(filename);
-  if (count === undefined) {
-    filenameCounts.set(filename, 0);
-    return filename;
+function uniqueFilename(filename: string, folders: string[]): string {
+  const key = (name: string) => JSON.stringify([...folders, name]);
+  let count = filenameCounts.get(key(filename)) ?? 0;
+  let candidate = filename;
+  while (allocatedFilenames.has(key(candidate))) {
+    count++;
+    const extension = filename.slice(filename.lastIndexOf("."));
+    candidate = `${stripExtension(filename)}.${count}${extension}`;
   }
-  filenameCounts.set(filename, count + 1);
-  const parts = filename.split(".");
-  parts.splice(-1, 0, String(count + 1));
-  return parts.join(".");
+  filenameCounts.set(key(filename), count);
+  allocatedFilenames.add(key(candidate));
+  return candidate;
 }
 
 function temporaryObjectUrl(blob: Blob): string {
@@ -136,6 +141,7 @@ export async function downloadMediaItem(options: DownloadMediaOptions): Promise<
   const folders = folderSegments(item, options.isGenFolder, options.isSplitFolder, options.folderName).map(
     sanitizeFolderName,
   );
+  filename = uniqueFilename(filename, folders);
 
   let url = sourceUrl;
   if (isAudioOnly) {
@@ -145,18 +151,19 @@ export async function downloadMediaItem(options: DownloadMediaOptions): Promise<
   }
 
   const withThumbnail = item.isVideo && options.isDownloadVideoThumbnail && !!item.thumbnail;
-  const thumbnailName = (name: string) => `${stripExtension(name)}.thumbnail.${getUrlExtension(item.thumbnail)}`;
+  const thumbnailName = withThumbnail
+    ? uniqueFilename(`${stripExtension(filename)}.thumbnail.${getUrlExtension(item.thumbnail)}`, folders)
+    : undefined;
 
   if (options.viaBrowserDownloads) {
     const path = [...folders, filename].join("/");
-    if (withThumbnail) await background.downloadFile(item.thumbnail, thumbnailName(path));
+    if (thumbnailName) await background.downloadFile(item.thumbnail, [...folders, thumbnailName].join("/"));
     await background.downloadFile(url, path);
-    return;
+  } else {
+    const root = getDownloadDirectory();
+    const directory = folders.length > 0 ? await getSubdirectory(root, folders) : root;
+    await writeUrlToDirectory(url, filename, directory);
+    if (thumbnailName) await writeUrlToDirectory(item.thumbnail, thumbnailName, directory);
   }
-
-  filename = uniqueFilename(filename);
-  const root = getDownloadDirectory();
-  const directory = folders.length > 0 ? await getSubdirectory(root, folders) : root;
-  await writeUrlToDirectory(url, filename, directory);
-  if (withThumbnail) await writeUrlToDirectory(item.thumbnail, thumbnailName(filename), directory);
+  downloadHistory.add(item.id);
 }

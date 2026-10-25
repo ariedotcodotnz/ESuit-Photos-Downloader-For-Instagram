@@ -12,8 +12,8 @@ import { useSettings } from "../state/settings";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface ResumeHandlers {
-  saveProgress(cursor: string): void;
-  clearProgress(): void;
+  saveProgress(cursor: string, lastIndex: number): Promise<void>;
+  clearProgress(): Promise<void>;
 }
 
 /**
@@ -64,9 +64,9 @@ export function useAlbumDownload({ saveProgress, clearProgress }: ResumeHandlers
     async (item: MediaItem) => {
       const settings = settingsRef.current;
       const { downloadType } = settings;
-      const skip = () => session.finishItem(item.id, "skip");
+      const skip = () => session.finishItem(item, "skip");
 
-      if (item.status === "error") return session.finishItem(item.id, "error");
+      if (item.status === "error") return session.finishItem(item, "error");
       if (settings.isSkipDownloadedFile && downloadHistory.has(item.id)) return skip();
       if (downloadType === DownloadType.IMAGES_ONLY && item.isVideo) return skip();
       if (downloadType === DownloadType.VIDEOS_ONLY && !item.isVideo) return skip();
@@ -96,12 +96,11 @@ export function useAlbumDownload({ saveProgress, clearProgress }: ResumeHandlers
       } catch (error) {
         // A malformed DASH index only affects this file.
         if (errorMessage(error).includes("Offset is outside the bounds of the DataView")) {
-          return session.finishItem(item.id, "error");
+          return session.finishItem(item, "error");
         }
         throw error;
       }
-      session.finishItem(item.id, "done");
-      downloadHistory.add(item.id);
+      session.finishItem(item, "done");
       await sleep(Math.ceil(200 * Math.random() + 50));
     },
     [folderName, session, settingsRef],
@@ -110,13 +109,22 @@ export function useAlbumDownload({ saveProgress, clearProgress }: ResumeHandlers
   const downloadAll = useCallback(
     async (items: MediaItem[]) => {
       const running = new Set<Promise<void>>();
-      for (const item of session.appendItems(items)) {
-        if (session.state.stopRequested) break;
-        const task: Promise<void> = downloadItem(item).finally(() => running.delete(task));
-        running.add(task);
-        if (running.size >= settingsRef.current.concurrentDownloads) await Promise.race(running);
+      const tasks: Promise<void>[] = [];
+      try {
+        for (const item of session.appendItems(items)) {
+          if (session.state.stopRequested) break;
+          const task: Promise<void> = downloadItem(item).finally(() => running.delete(task));
+          running.add(task);
+          tasks.push(task);
+          if (running.size >= settingsRef.current.concurrentDownloads) await Promise.race(running);
+        }
+        await Promise.all(tasks);
+      } finally {
+        // A failing task must not leave other writes running after the caller
+        // returns to the restart controls.
+        await Promise.allSettled(tasks);
       }
-      await Promise.all(running);
+      return !session.state.stopRequested;
     },
     [downloadItem, session, settingsRef],
   );
@@ -137,6 +145,8 @@ export function useAlbumDownload({ saveProgress, clearProgress }: ResumeHandlers
       await downloadHistory.load();
       let nextParams: unknown = null;
       let isFirstPage = true;
+      let checkpointCursor = resumeCursor;
+      const currentIndex = () => (session.state.resumedFrom?.lastIndex ?? 0) + session.state.downloadCount;
 
       while (!session.state.stopRequested) {
         session.update({ isFetchingNextPage: true });
@@ -151,17 +161,28 @@ export function useAlbumDownload({ saveProgress, clearProgress }: ResumeHandlers
         );
         isFirstPage = false;
 
-        await downloadAll(page.items);
-        if (page.cursorToSave) saveProgress(page.cursorToSave);
+        // Several detail batches may replay the same listing. Keep its first
+        // index until every batch has finished, rather than moving it forward.
+        if (page.replayCursor !== undefined && page.replayCursor !== checkpointCursor) {
+          await saveProgress(page.replayCursor, currentIndex());
+          checkpointCursor = page.replayCursor;
+        }
+        if (session.state.stopRequested || !(await downloadAll(page.items))) return;
+        if (page.cursorToSave != null) {
+          await saveProgress(page.cursorToSave, currentIndex());
+          checkpointCursor = page.cursorToSave;
+        }
+        if (session.state.stopRequested) return;
 
         if (!page.hasMore) {
           session.update({ scanComplete: true });
           await sleep(2_000);
-          clearProgress();
+          if (!session.state.stopRequested) await clearProgress();
           return;
         }
         if (!page.skipWaiting) {
           await pauseToAvoidRestriction();
+          if (session.state.stopRequested) return;
           await applyRequestDelay();
         }
         nextParams = page.nextParams;

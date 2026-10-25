@@ -4,7 +4,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { FetchCountType } from "@/shared/settings";
 import type { MediaStatus } from "../media/types";
 import { useDownloaderModal } from "../state/downloader-modal";
-import { useDownloadSession, type DownloadSessionState } from "../state/download-session";
+import { mediaItemKey, useDownloadSession, type DownloadSessionState } from "../state/download-session";
 import { useSettings } from "../state/settings";
 
 /** Only the most recent thumbnails are rendered, to keep long downloads responsive. */
@@ -105,7 +105,7 @@ export function DownloadProgress({ overlay }: { overlay?: ReactNode }) {
       >
         {state.items.slice(-VISIBLE_THUMBNAILS).map((item) => (
           <div
-            key={item.id}
+            key={mediaItemKey(item)}
             style={{
               position: "relative",
               display: "inline-block",

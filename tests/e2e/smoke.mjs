@@ -158,6 +158,17 @@ try {
     "media info requested through Instagram's API client",
     (await page.evaluate(() => window.__apiCalls)).some((p) => p.includes("/api/v1/media/3141592653589793/info/")),
   );
+  check(
+    "quick download is recorded in persistent history",
+    await worker.evaluate(async () => {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const { downloadedFileIds = [] } = await chrome.storage.local.get("downloadedFileIds");
+        if (downloadedFileIds.includes("3141592653589793")) return true;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return false;
+    }),
+  );
 
   // Hotkey on a post URL.
   await page.goto("https://www.instagram.com/p/CODE123/");
@@ -289,6 +300,115 @@ try {
     (await avatarIcon.isVisible()) && consoleErrors.splice(rateLimitErrorStart).length === 1,
   );
   await page.screenshot({ path: join(out, "avatar-rate-limit.png") });
+
+  // Stop must drain pending fetches/writes before restart controls appear,
+  // and a partial final page must retain a checkpoint with its starting index.
+  await worker.evaluate(async () => {
+    const { settings } = await chrome.storage.local.get("settings");
+    await chrome.storage.local.set({
+      settings: { ...settings, filenameFormats: "-**index**-", isSkipDownloadedFile: false },
+    });
+  });
+  await page.goto("https://www.instagram.com/someone/");
+  await navItem.waitFor({ timeout: 15000 });
+  await page.evaluate(() => {
+    window.__holdProfileFeed = true;
+    window.__holdAlbumWrite = false;
+    window.__fileWrites = [];
+    const directory = {
+      requestPermission: async () => "granted",
+      getDirectoryHandle: async (name) => {
+        if (!name) throw new Error("Empty folder name");
+        return directory;
+      },
+      getFileHandle: async (name) => ({
+        createWritable: async () => ({
+          write: async () => {},
+          close: async () => {
+            if (window.__holdAlbumWrite) {
+              await new Promise((resolve) => {
+                window.__releaseAlbumWrite = resolve;
+              });
+            }
+            window.__fileWrites.push(name);
+          },
+        }),
+      }),
+    };
+    window.showDirectoryPicker = async () => directory;
+  });
+  await navItem.click();
+  await page.getByRole("button", { name: "Download Whole Album" }).click();
+  await page.getByRole("button", { name: "Select a Folder to Download" }).click();
+  await page.waitForFunction(() => typeof window.__releaseProfileFeed === "function");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  check(
+    "stopped fetch cannot restart before it settles",
+    (await page.getByRole("button", { name: "Stopping…", exact: true }).isDisabled()) &&
+      (await page.getByRole("button", { name: "ReDownload", exact: true }).count()) === 0,
+  );
+  await page.evaluate(() => {
+    window.__holdProfileFeed = false;
+    window.__releaseProfileFeed();
+  });
+  await page.getByRole("button", { name: "ReDownload", exact: true }).waitFor();
+  const fetchCheckpoint = await worker.evaluate(async () =>
+    (await chrome.storage.local.get("resumeCursors")).resumeCursors.find(
+      (cursor) => cursor.collectionToken === "999_posts",
+    ),
+  );
+  check(
+    "stopping the final fetch keeps a checkpoint without writing files",
+    fetchCheckpoint?.lastCursor === "rest:" &&
+      fetchCheckpoint?.lastIndex === 0 &&
+      (await page.evaluate(() => window.__fileWrites.length)) === 0,
+  );
+
+  await page.getByRole("button", { name: "ReDownload", exact: true }).click();
+  await page.evaluate(() => {
+    window.__holdAlbumWrite = true;
+  });
+  await page.getByRole("button", { name: "Resume downloading?", exact: true }).click();
+  await page.waitForFunction(() => typeof window.__releaseAlbumWrite === "function");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  check(
+    "stopped write cannot restart before it settles",
+    (await page.getByRole("button", { name: "Stopping…", exact: true }).isDisabled()) &&
+      (await page.getByRole("button", { name: "ReDownload", exact: true }).count()) === 0,
+  );
+  await page.evaluate(() => {
+    window.__holdAlbumWrite = false;
+    window.__releaseAlbumWrite();
+  });
+  await page.getByRole("button", { name: "ReDownload", exact: true }).waitFor();
+  const partialCheckpoint = await worker.evaluate(async () =>
+    (await chrome.storage.local.get("resumeCursors")).resumeCursors.find(
+      (cursor) => cursor.collectionToken === "999_posts",
+    ),
+  );
+  check(
+    "partial final page keeps its checkpoint and leaves the second file pending",
+    partialCheckpoint?.lastCursor === "rest:" &&
+      partialCheckpoint?.lastIndex === 0 &&
+      JSON.stringify(await page.evaluate(() => window.__fileWrites)) === JSON.stringify(["1.jpg"]),
+  );
+  await page.getByRole("button", { name: "ReDownload", exact: true }).click();
+  await page.getByRole("button", { name: "Resume downloading?", exact: true }).click();
+  await page.getByRole("button", { name: "ReDownload", exact: true }).waitFor({ timeout: 10000 });
+  check(
+    "resume replays a partial page with matching file indices",
+    JSON.stringify(await page.evaluate(() => window.__fileWrites)) === JSON.stringify(["1.jpg", "1.jpg", "2.jpg"]),
+  );
+  check(
+    "a fully processed final page clears its checkpoint",
+    await worker.evaluate(
+      async () =>
+        !(await chrome.storage.local.get("resumeCursors")).resumeCursors.some(
+          (cursor) => cursor.collectionToken === "999_posts",
+        ),
+    ),
+  );
+  await page.locator("button.ant-modal-close").click();
 
   const finalErrors = consoleErrors.filter((e) => !/favicon|Warning:/i.test(e));
   check("still no page errors after downloads", finalErrors.length === 0, finalErrors.join(" | ").slice(0, 500));
