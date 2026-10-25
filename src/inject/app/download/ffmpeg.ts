@@ -11,6 +11,7 @@ const MAX_VIDEO_BYTES = 295 * 1024 * 1024;
 const ffmpeg = new FFmpeg();
 let processedBytes = 0;
 let hasLoadedOnce = false;
+let bundleUrlsPromise: Promise<{ classWorkerURL: string; coreURL: string; wasmURL: string }> | undefined;
 let queue: Promise<unknown> = Promise.resolve();
 
 function recycle(): void {
@@ -26,12 +27,17 @@ function recycle(): void {
 async function ensureLoaded(): Promise<void> {
   if (ffmpeg.loaded) return;
   if (!hasLoadedOnce) showProgress("Loading FFmpeg...");
-  const [classWorkerURL, coreURL, wasmURL] = await Promise.all([
+  bundleUrlsPromise ??= Promise.all([
     toBlobURL(extensionUrl(OUTPUT.ffmpegWorker), "text/javascript"),
     toBlobURL(extensionUrl("ffmpeg/ffmpeg-core.js"), "text/javascript"),
     toBlobURL(extensionUrl("ffmpeg/ffmpeg-core.wasm"), "application/wasm"),
-  ]);
-  await ffmpeg.load({ classWorkerURL, coreURL, wasmURL });
+  ]).then(([classWorkerURL, coreURL, wasmURL]) => ({ classWorkerURL, coreURL, wasmURL }));
+  try {
+    await ffmpeg.load(await bundleUrlsPromise);
+  } catch (error) {
+    bundleUrlsPromise = undefined;
+    throw error;
+  }
   hasLoadedOnce = true;
 }
 
@@ -109,9 +115,7 @@ async function merge({ video, audio, codec }: MergeInput): Promise<File> {
     const type = codec ? `video/mp4; codecs="${codec}"` : "video/mp4";
     const file = new File([output as BlobPart], "merged_output.mp4", { type });
 
-    for (const path of ["video.mp4", "audio.mp4", "output.mp4", "audioInfo.json"]) await ffmpeg.deleteFile(path);
     closeProgressSoon();
-    if (processedBytes > MAX_PROCESSED_BYTES) recycle();
     return file;
   } catch (error) {
     console.error(error);
@@ -121,6 +125,10 @@ async function merge({ video, audio, codec }: MergeInput): Promise<File> {
   } finally {
     ffmpeg.off("progress", onProgress);
     ffmpeg.off("log", onLog);
+    for (const path of ["video.mp4", "audio.mp4", "output.mp4", "audioInfo.json"]) {
+      await ffmpeg.deleteFile(path).catch(() => undefined);
+    }
+    if (processedBytes > MAX_PROCESSED_BYTES) recycle();
   }
 }
 

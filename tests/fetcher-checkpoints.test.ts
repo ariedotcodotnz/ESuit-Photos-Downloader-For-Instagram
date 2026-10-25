@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fetchSearchResults } from "@/inject/app/fetchers/hashtag";
 import { fetchProfilePosts, fetchProfileReels, fetchProfileTagged } from "@/inject/app/fetchers/profile";
 import { fetchAllCollections, fetchOwnCollection, fetchOwnSavedPosts } from "@/inject/app/fetchers/saved";
 import { DownloadSessionStore } from "@/inject/app/state/download-session";
@@ -104,6 +105,52 @@ describe("profile checkpoints", () => {
     expect(first.replayCursor).toBe("graphql:");
     expect(first.cursorToSave).toBeNull();
     expect(second.cursorToSave).toBe("graphql:next");
+  });
+
+  it("stops pagination when more_available or has_next_page is true but cursor is missing", async () => {
+    mocks.apiGet.mockResolvedValueOnce({ items: [media("1")], more_available: true, next_max_id: "" });
+    const restResult = await fetchProfilePosts({ nextParams: null }, target);
+    expect(restResult.hasMore).toBe(false);
+    expect(restResult.cursorToSave).toBeNull();
+
+    mocks.graphql = true;
+    mocks.graphqlRequest.mockResolvedValueOnce([
+      {
+        data: {
+          xdt_api__v1__feed__user_timeline_graphql_connection: {
+            edges: [{ node: media("1") }],
+            page_info: { has_next_page: true, end_cursor: null },
+          },
+        },
+      },
+    ]);
+    const gqlResult = await fetchProfilePosts({ nextParams: null }, target);
+    expect(gqlResult.hasMore).toBe(false);
+    expect(gqlResult.cursorToSave).toBeNull();
+  });
+
+  it("preserves rank_token alongside next_max_id across search resume checkpoints", async () => {
+    mocks.apiGet
+      .mockResolvedValueOnce({
+        media_grid: {
+          sections: [{ layout_content: { medias: [{ media: media("1") }] } }],
+          has_more: true,
+          next_max_id: "max-2",
+          rank_token: "rank-abc",
+        },
+      })
+      .mockResolvedValueOnce({
+        media_grid: {
+          sections: [{ layout_content: { medias: [{ media: media("2") }] } }],
+          has_more: false,
+        },
+      });
+    const first = await fetchSearchResults({ nextParams: null }, "cats");
+    expect(first.cursorToSave).toBe(JSON.stringify({ nextMaxId: "max-2", rankToken: "rank-abc" }));
+    await fetchSearchResults({ nextParams: null, resumeCursor: first.cursorToSave! }, "cats");
+    expect(mocks.apiGet).toHaveBeenLastCalledWith("/api/v1/fbsearch/web/top_serp", {
+      query: { query: "cats", next_max_id: "max-2", rank_token: "rank-abc" },
+    });
   });
 });
 

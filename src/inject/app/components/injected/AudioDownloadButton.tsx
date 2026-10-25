@@ -37,7 +37,7 @@ function AudioDownloadButtonContent({ postId }: { postId: string }) {
       if (!video) return void message.warning("No video found in this post");
       if (!video.audioUrl && !video.highestSource?.audio)
         return void message.warning("No audio available for this reel");
-      await quickDownload([video], { isAudioOnly: true });
+      await quickDownload([video], { isAudioOnly: true, viaBrowserDownloads: true });
       void message.success("Audio download successful");
     });
 

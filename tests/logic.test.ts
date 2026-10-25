@@ -12,6 +12,7 @@ import {
   FetchCountType,
   normalizeSettings,
 } from "@/shared/settings";
+import { getUrlBasename, getUrlExtension } from "@/shared/url";
 
 describe("settings", () => {
   it("fills defaults and rejects values of the wrong type", () => {
@@ -136,5 +137,18 @@ describe("background downloads", () => {
     expect(() => assertDownloadableUrl("https://cdninstagram.com.evil.example/a.jpg")).toThrow();
     expect(() => assertDownloadableUrl("blob:https://evil.example/1234")).toThrow();
     expect(() => assertDownloadableUrl("http://scontent.cdninstagram.com/a.jpg")).toThrow();
+  });
+});
+
+describe("URL helpers", () => {
+  it("extracts extensions from the basename without matching directory dots", () => {
+    expect(getUrlExtension("https://scontent.cdninstagram.com/v/t51.2885-15/12345_n.jpg?stp=dst-jpg")).toBe("jpg");
+    expect(getUrlExtension("https://scontent.cdninstagram.com/v/t51.2885-15/12345")).toBe("");
+    expect(getUrlExtension("https://scontent.cdninstagram.com/media/12345")).toBe("");
+    expect(getUrlBasename("https://scontent.cdninstagram.com/v/t51.2885-15/12345_n.jpg?stp=dst-jpg")).toBe(
+      "12345_n.jpg",
+    );
+    expect(getUrlBasename("photo.png?dl=1")).toBe("photo.png");
+    expect(getUrlExtension("photo.png?dl=1")).toBe("png");
   });
 });

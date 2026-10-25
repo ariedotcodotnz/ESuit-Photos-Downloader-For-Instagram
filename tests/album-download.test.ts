@@ -219,4 +219,24 @@ describe("album cancellation and resume", () => {
     expect(mocks.fetchQuery).toHaveBeenCalledTimes(1);
     expect(clearProgress).not.toHaveBeenCalled();
   });
+
+  it("assigns distinct sequential indices under concurrency without counting failed items as downloaded", async () => {
+    mocks.settings.mockReturnValue({ ...DEFAULT_SETTINGS, concurrentDownloads: 2, isFullSpeed: true });
+    mocks.fetchQuery.mockResolvedValue(page(["1", "2"], { cursorToSave: "rest:next" }));
+    mocks.download
+      .mockRejectedValueOnce(new Error("Offset is outside the bounds of the DataView"))
+      .mockResolvedValueOnce(undefined);
+    const work = useAlbumDownload({ saveProgress, clearProgress }).run();
+    await vi.runAllTimersAsync();
+    await work;
+    expect(mocks.download.mock.calls.map((call) => [call[0].item.id, call[0].index])).toEqual([
+      ["1", 1],
+      ["2", 2],
+    ]);
+    expect(session.state.downloadCount).toBe(1);
+    expect(saveProgress.mock.calls).toEqual([
+      ["rest:", 0],
+      ["rest:next", 1],
+    ]);
+  });
 });

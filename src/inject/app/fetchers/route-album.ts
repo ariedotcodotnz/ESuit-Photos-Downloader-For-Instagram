@@ -24,9 +24,9 @@ export function resolveRouteAlbum(route: IgRouteContextValue | null): RouteAlbum
 
   if (pageName === "KeywordSearchExplorePage" && params.q) {
     const query = params.q;
-    const folder = sanitizeFolderName(query);
+    const folder = sanitizeFolderName(query) || "search";
     return {
-      collectionId: folder,
+      collectionId: sanitizeFolderName(query) || `search_${encodeURIComponent(query)}`,
       folderName: folder,
       isProfile: false,
       fetchQuery: (c) => fetchSearchResults(c, query),
@@ -75,7 +75,7 @@ export function resolveRouteAlbum(route: IgRouteContextValue | null): RouteAlbum
             fetchQuery: (c) => fetchProfileTagged(c, target),
           };
         case "saved":
-          return { ...none, isProfile: true, fetchQuery: fetchAllCollections };
+          return { ...none, fetchQuery: fetchAllCollections };
       }
     }
   }

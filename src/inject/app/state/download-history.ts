@@ -10,7 +10,14 @@ class DownloadHistory {
   private ids = new Set<string>();
   private pending: string[] = [];
   private loading: Promise<void> | undefined;
+  private clearVersion = 0;
   private readonly listeners = new Set<() => void>();
+
+  constructor() {
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      window.addEventListener("pagehide", () => this.flush());
+    }
+  }
 
   readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -24,16 +31,22 @@ class DownloadHistory {
   }
 
   load(): Promise<void> {
-    this.loading ??= background
-      .getDownloadedFileIds()
-      .then((ids) => {
-        this.ids = new Set([...ids, ...this.ids]);
-        this.emit();
-      })
-      .catch((error: unknown) => {
-        this.loading = undefined;
-        console.error(error);
-      });
+    if (!this.loading) {
+      const versionAtStart = this.clearVersion;
+      this.loading = background
+        .getDownloadedFileIds()
+        .then((ids) => {
+          if (versionAtStart !== this.clearVersion) return;
+          this.ids = new Set([...ids, ...this.pending]);
+          this.emit();
+        })
+        .catch((error: unknown) => {
+          console.error(error);
+        })
+        .finally(() => {
+          this.loading = undefined;
+        });
+    }
     return this.loading;
   }
 
@@ -49,14 +62,22 @@ class DownloadHistory {
     this.emit();
   }
 
-  private readonly flushSoon = throttle(() => {
+  flush(): void {
+    this.flushSoon.cancel();
     if (this.pending.length === 0) return;
     const batch = this.pending;
     this.pending = [];
     void background.appendDownloadedFileIds(batch);
+  }
+
+  private readonly flushSoon = throttle(() => {
+    this.flush();
   }, 5_000);
 
   async clear(): Promise<void> {
+    this.clearVersion++;
+    this.loading = undefined;
+    this.flushSoon.cancel();
     this.ids.clear();
     this.pending = [];
     await background.clearDownloadedFileIds();

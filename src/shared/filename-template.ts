@@ -35,7 +35,10 @@ export interface FilenameField {
 const formatDate = (data: FilenameTemplateData, format: string) => dayjs.unix(data.createdAt).format(format);
 
 export const FILENAME_FIELDS: readonly FilenameField[] = [
-  { value: "user display name", transformer: (d) => sanitizeFilename(d.fullName ? d.fullName : d.authorName) },
+  {
+    value: "user display name",
+    transformer: (d) => sanitizeFilename(d.fullName ? d.fullName : d.authorName) || sanitizeFilename(d.authorName),
+  },
   { value: "index", transformer: (d) => String(d.index) },
   { value: "date", transformer: (d) => formatDate(d, "YYYY_MM_DD__HH_mm_ss") },
   { value: "time", transformer: (d) => formatDate(d, "HH_mm_ss") },
@@ -54,7 +57,7 @@ export const FILENAME_FIELDS: readonly FilenameField[] = [
   { value: "hours", transformer: (d) => formatDate(d, "HH") },
   { value: "minutes", transformer: (d) => formatDate(d, "mm") },
   { value: "seconds", transformer: (d) => formatDate(d, "ss") },
-  { value: "audio title", transformer: (d) => sanitizeFilename(d.audioTitle ?? "audio") },
+  { value: "audio title", transformer: (d) => sanitizeFilename(d.audioTitle ?? "audio") || "audio" },
   { value: "file no", transformer: (d) => String(d.carouselIndex ?? 1) },
 ];
 

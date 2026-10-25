@@ -2,7 +2,7 @@ import { DeleteOutlined } from "@ant-design/icons";
 import { App, Button, Card, Empty, List, Popconfirm, Space, Spin, Typography } from "antd";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ResumeCursor } from "@/shared/messaging";
 import { applySettingsPatch, DEFAULT_SETTINGS, type UserSettings } from "@/shared/settings";
 import { getBucket, onBucketChanged, setBucket, updateBucket } from "@/shared/storage";
@@ -14,15 +14,27 @@ dayjs.extend(relativeTime);
 function SettingsCard({ isDark }: { isDark: boolean }) {
   const { message } = App.useApp();
   const [settings, setSettings] = useState<UserSettings | null>(null);
+  const settingsRef = useRef<UserSettings | null>(null);
+  settingsRef.current = settings;
+
+  const applySettings = (next: UserSettings) => {
+    settingsRef.current = next;
+    setSettings(next);
+  };
 
   useEffect(() => {
-    void getBucket("settings").then(setSettings);
+    void getBucket("settings").then(applySettings);
+    return onBucketChanged("settings", applySettings);
   }, []);
 
   if (!settings) return <Spin />;
 
   const save = async () => {
-    await setBucket("settings", settings);
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    if (!settingsRef.current) return;
+    await setBucket("settings", settingsRef.current);
     void message.success("Saved successfully.");
   };
 
@@ -31,7 +43,7 @@ function SettingsCard({ isDark }: { isDark: boolean }) {
       title="Download settings"
       extra={
         <Space>
-          <Button onClick={() => setSettings({ ...DEFAULT_SETTINGS })}>Reset to defaults</Button>
+          <Button onClick={() => applySettings({ ...DEFAULT_SETTINGS })}>Reset to defaults</Button>
           <Button type="primary" onClick={() => void save()}>
             Save
           </Button>
@@ -40,7 +52,10 @@ function SettingsCard({ isDark }: { isDark: boolean }) {
     >
       <SettingsForm
         settings={settings}
-        onChange={(patch) => setSettings((current) => current && applySettingsPatch(current, patch))}
+        onChange={(patch) => {
+          if (!settingsRef.current) return;
+          applySettings(applySettingsPatch(settingsRef.current, patch));
+        }}
         isDark={isDark}
         showQuantityControl
         defaultExpanded

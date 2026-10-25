@@ -35,12 +35,14 @@ async function fetchSavedPage(
 ): Promise<FetchResult<MaxIdPage>> {
   const maxId = context.resumeCursor ?? context.nextParams?.maxId;
   const feed = await apiGet<SavedFeed>(path, { query: maxId ? { max_id: maxId } : {} });
+  const nextMaxId = feed.next_max_id || undefined;
+  const hasMore = !!feed.more_available && !!nextMaxId;
   return {
     items: inFolder(toMediaItems((feed.items ?? []).map(({ media }) => withAuthor(media))), folder),
-    hasMore: !!feed.more_available,
-    nextParams: { maxId: feed.next_max_id },
+    hasMore,
+    nextParams: { maxId: nextMaxId },
     replayCursor: maxId ?? "",
-    cursorToSave: feed.more_available ? feed.next_max_id : null,
+    cursorToSave: hasMore ? nextMaxId : null,
   };
 }
 
@@ -72,7 +74,7 @@ async function listCollections(maxId?: string, collected: Collection[] = []): Pr
     },
   );
   collected.push(...page.items);
-  return page.more_available ? listCollections(page.next_max_id, collected) : collected;
+  return page.more_available && page.next_max_id ? listCollections(page.next_max_id, collected) : collected;
 }
 
 interface AllCollectionsPage {

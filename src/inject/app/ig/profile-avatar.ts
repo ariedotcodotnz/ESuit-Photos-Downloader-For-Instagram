@@ -1,9 +1,19 @@
+import { sanitizeFolderName } from "@/shared/filename";
 import { getHook } from "../env";
 import { fetchUserInfo, type IgUserInfo } from "./instapi";
 
 export interface ProfileAvatar {
   url: string;
   folderName: string;
+}
+
+/** First candidate that still has characters after folder-name sanitising. */
+function pickFolderName(...candidates: (string | undefined)[]): string {
+  for (const candidate of candidates) {
+    const clean = candidate ? sanitizeFolderName(candidate) : "";
+    if (clean) return clean;
+  }
+  return "avatar";
 }
 
 /** Best HD picture supplied by the profile component or the user-info API. */
@@ -42,17 +52,20 @@ export async function fetchProfileAvatar(
     loadedUser.profile_pic_url ||
     readProfileField(userId, "profile_pic_url") ||
     displayedUrl;
-  const folderName =
-    loadedUser.full_name ||
-    readProfileField(userId, "full_name") ||
-    loadedUser.username ||
-    readProfileField(userId, "username") ||
-    userId;
+  const folderName = pickFolderName(
+    loadedUser.full_name,
+    readProfileField(userId, "full_name"),
+    loadedUser.username,
+    readProfileField(userId, "username"),
+    userId,
+  );
   if (url) return { url, folderName };
 
   // No loaded image is available. Make one request and let failures (including
   // HTTP 429) reach the UI without retries or requests to another endpoint.
   const user = await fetchUserInfo(userId);
   const fetchedUrl = user && (hdPictureUrl(user) || user.profile_pic_url);
-  return fetchedUrl ? { url: fetchedUrl, folderName: user?.full_name || user?.username || folderName } : undefined;
+  return fetchedUrl
+    ? { url: fetchedUrl, folderName: pickFolderName(user?.full_name, user?.username, folderName) }
+    : undefined;
 }

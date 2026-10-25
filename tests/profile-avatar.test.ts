@@ -112,4 +112,20 @@ describe("fetchProfileAvatar", () => {
     fetchUserInfo.mockResolvedValue({ pk: "123", username: "someone" });
     expect(await fetchProfileAvatar("123")).toBeUndefined();
   });
+
+  it.each(["✨🔥", "...", "CON"])(
+    "falls back to username when full_name (%j) sanitizes to an empty folder name",
+    async (fullName) => {
+      expect(
+        await fetchProfileAvatar("123", {
+          username: "someone",
+          full_name: fullName,
+          profile_pic_url: "loaded.jpg",
+        }),
+      ).toEqual({
+        url: "loaded.jpg",
+        folderName: "someone",
+      });
+    },
+  );
 });

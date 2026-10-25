@@ -15,7 +15,7 @@ function renderFallback(error: unknown) {
  */
 export function AppProviders({ children }: { children: ReactNode }) {
   const ErrorBoundary = useMemo(() => requireIg("CometErrorBoundary.react"), []);
-  const dark = useMemo(isDarkMode, []);
+  const dark = isDarkMode();
 
   return (
     <ErrorBoundary fallback={renderFallback}>

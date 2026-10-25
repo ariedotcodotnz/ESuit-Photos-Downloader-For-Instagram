@@ -79,7 +79,9 @@ export function folderSegments(
 
 async function convertedImageUrl(url: string, format: Exclude<ImageFormat, ImageFormat.ORIGINAL>): Promise<string> {
   if ((await fetchContentType(url)) === format) return url;
-  const blob = await (await fetch(url)).blob();
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Download failed: HTTP ${response.status}`);
+  const blob = await response.blob();
   return temporaryObjectUrl(await convertImage(blob, format));
 }
 
@@ -115,21 +117,27 @@ async function mergedVideoUrl(item: MediaItem): Promise<string> {
 export async function downloadMediaItem(options: DownloadMediaOptions): Promise<void> {
   const { item, index, imageFormat, isAudioOnly = false } = options;
 
-  let filename = renderFilenameTemplate({
-    rule: options.filenameTemplate,
-    data: {
-      index,
-      carouselIndex: item.carouselIndex ?? 1,
-      createdAt: item.createdAt,
-      id: item.id,
-      authorName: item.authorName,
-      fullName: item.fullName,
-      uri: item.uri,
-      code: item.code,
-      audioTitle: item.audioTitle,
-    },
-  });
-  filename = isAudioOnly ? `${filename}.m4a` : `${filename}.${getUrlExtension(item.uri)}`;
+  const stem =
+    sanitizeFilename(
+      renderFilenameTemplate({
+        rule: options.filenameTemplate,
+        data: {
+          index,
+          carouselIndex: item.carouselIndex ?? 1,
+          createdAt: item.createdAt,
+          id: item.id,
+          authorName: item.authorName,
+          fullName: item.fullName,
+          uri: item.uri,
+          code: item.code,
+          audioTitle: item.audioTitle,
+        },
+      }),
+    ) ||
+    sanitizeFilename(item.id) ||
+    String(index);
+  const defaultExtension = getUrlExtension(item.uri) || (item.isVideo ? "mp4" : "jpg");
+  let filename = isAudioOnly ? `${stem}.m4a` : `${stem}.${defaultExtension}`;
 
   let sourceUrl = item.uri;
   if (!item.isVideo && imageFormat !== ImageFormat.ORIGINAL) {
@@ -151,8 +159,9 @@ export async function downloadMediaItem(options: DownloadMediaOptions): Promise<
   }
 
   const withThumbnail = item.isVideo && options.isDownloadVideoThumbnail && !!item.thumbnail;
+  const thumbnailExtension = withThumbnail ? getUrlExtension(item.thumbnail) || "jpg" : "";
   const thumbnailName = withThumbnail
-    ? uniqueFilename(`${stripExtension(filename)}.thumbnail.${getUrlExtension(item.thumbnail)}`, folders)
+    ? uniqueFilename(`${stripExtension(filename)}.thumbnail.${thumbnailExtension}`, folders)
     : undefined;
 
   if (options.viaBrowserDownloads) {

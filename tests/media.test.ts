@@ -112,6 +112,28 @@ describe("toMediaItems", () => {
     expect(item?.highestSource?.video.label).toBe("1080p");
   });
 
+  it("extracts audio metadata from music_metadata and story_music_stickers when clips_metadata is absent", () => {
+    const postWithMusicMetadata: IgMedia = {
+      ...image("2m"),
+      media_type: MediaType.VIDEO,
+      video_versions: [{ url: "video.mp4", width: 720, height: 1280 }],
+      music_metadata: {
+        music_info: { music_asset_info: { progressive_download_url: "post-music.m4a", title: "Post Song" } },
+      },
+    };
+    const storyWithSticker: IgMedia = {
+      ...image("2s"),
+      media_type: MediaType.VIDEO,
+      video_versions: [{ url: "story.mp4", width: 720, height: 1280 }],
+      story_music_stickers: [
+        { music_asset_info: { progressive_download_url: "story-music.m4a", title: "Story Song" } },
+      ],
+    };
+    const [postItem, storyItem] = toMediaItems([withAuthor(postWithMusicMetadata), withAuthor(storyWithSticker)]);
+    expect(postItem).toMatchObject({ audioUrl: "post-music.m4a", audioTitle: "Post Song" });
+    expect(storyItem).toMatchObject({ audioUrl: "story-music.m4a", audioTitle: "Story Song" });
+  });
+
   it("expands carousels, inheriting the post's code and timestamp", () => {
     const carousel: IgMedia = {
       pk: "3",

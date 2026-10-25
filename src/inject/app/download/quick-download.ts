@@ -2,6 +2,7 @@ import { DownloadType, type UserSettings } from "@/shared/settings";
 import { fetchMediaInfo } from "../ig/instapi";
 import type { MediaItem } from "../media/types";
 import { background } from "../messaging";
+import { downloadHistory } from "../state/download-history";
 import { downloadMediaItem, resetFilenameCounter } from "./download-media";
 import { hasDownloadDirectory } from "./filesystem";
 
@@ -16,7 +17,7 @@ export interface QuickDownloadOptions {
    */
   viaBrowserDownloads?: boolean;
   isAudioOnly?: boolean;
-  /** Skip videos when the download type is "Images". */
+  /** Filter items according to the configured downloadType setting. */
   respectDownloadType?: boolean;
 }
 
@@ -27,22 +28,36 @@ export async function quickDownload(items: MediaItem[], options: QuickDownloadOp
   resetFilenameCounter();
 
   let index = 0;
-  for (const item of items) {
-    if (options.respectDownloadType && settings.downloadType === DownloadType.IMAGES_ONLY && item.isVideo) continue;
-    index++;
-    await downloadMediaItem({
-      item,
-      index,
-      filenameTemplate: settings.filenameFormats,
-      imageFormat: settings.formatType,
-      isGenFolder: settings.isGenFolder,
-      isSplitFolder: settings.isSplitFolder,
-      viaBrowserDownloads,
-      isDownloadVideoThumbnail: settings.isDownloadVideoThumbnail,
-      isMergingVideo: settings.isMergingVideo,
-      isAudioOnly: options.isAudioOnly,
-    });
-    await sleep(250 * Math.random());
+  try {
+    for (const item of items) {
+      if (options.respectDownloadType) {
+        if (settings.downloadType === DownloadType.IMAGES_ONLY && item.isVideo) continue;
+        if (settings.downloadType === DownloadType.VIDEOS_ONLY && !item.isVideo) continue;
+        if (
+          settings.downloadType === DownloadType.AUDIO_ONLY &&
+          (!item.isVideo || (!item.audioUrl && !item.highestSource?.audio))
+        ) {
+          continue;
+        }
+      }
+      index++;
+      await downloadMediaItem({
+        item,
+        index,
+        filenameTemplate: settings.filenameFormats,
+        imageFormat: settings.formatType,
+        isGenFolder: settings.isGenFolder,
+        isSplitFolder: settings.isSplitFolder,
+        viaBrowserDownloads,
+        isDownloadVideoThumbnail: settings.isDownloadVideoThumbnail,
+        isMergingVideo: settings.isMergingVideo,
+        isAudioOnly:
+          options.isAudioOnly || Boolean(options.respectDownloadType && settings.downloadType === DownloadType.AUDIO_ONLY),
+      });
+      await sleep(250 * Math.random());
+    }
+  } finally {
+    downloadHistory.flush?.();
   }
 }
 

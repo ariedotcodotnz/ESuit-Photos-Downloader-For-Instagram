@@ -11,6 +11,9 @@ export function OptionsView() {
   const { message } = App.useApp();
 
   const saveSettings = async () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     await save();
     void message.success("Saved successfully.");
   };

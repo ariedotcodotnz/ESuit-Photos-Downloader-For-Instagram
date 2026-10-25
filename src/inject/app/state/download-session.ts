@@ -74,6 +74,11 @@ export class DownloadSessionStore {
     this.emit();
   }
 
+  /** Whether an item has already been added to this session. */
+  hasItem(item: MediaItem): boolean {
+    return this.itemIds.has(mediaItemKey(item));
+  }
+
   /** Adds items not seen before in this session and returns them. */
   appendItems(items: MediaItem[]): MediaItem[] {
     const fresh: MediaItem[] = [];

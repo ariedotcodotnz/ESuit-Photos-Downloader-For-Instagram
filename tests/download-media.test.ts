@@ -126,4 +126,21 @@ describe("download filenames and completion", () => {
       expect(addHistory).toHaveBeenCalledExactlyOnceWith("done");
     },
   );
+
+  it("falls back to item id and default extension when template stem or URL extension is empty", async () => {
+    await downloadMediaItem(
+      options(
+        item("media-99", {
+          authorName: "✨",
+          fullName: "🔥",
+          uri: "https://scontent.cdninstagram.com/v/t51.2885-15/media_without_ext",
+        }),
+        { filenameTemplate: "-**user display name**-" },
+      ),
+    );
+    expect(downloadFile).toHaveBeenCalledWith(
+      "https://scontent.cdninstagram.com/v/t51.2885-15/media_without_ext",
+      "media-99.jpg",
+    );
+  });
 });

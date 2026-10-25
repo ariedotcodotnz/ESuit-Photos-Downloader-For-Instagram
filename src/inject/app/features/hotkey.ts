@@ -19,7 +19,7 @@ export async function downloadCurrentPost(): Promise<void> {
   isDownloading = true;
   try {
     void message.loading({ content: "Downloading...", key: TOAST_KEY, duration: 0 });
-    await downloadPost(shortcodeToMediaId(shortcode));
+    await downloadPost(shortcodeToMediaId(shortcode), undefined, { viaBrowserDownloads: true });
     void message.success({ content: "Download Successful", key: TOAST_KEY });
   } catch (error) {
     console.error("Hotkey download failed:", error);

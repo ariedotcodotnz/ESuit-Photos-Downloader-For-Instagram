@@ -29,7 +29,13 @@ function StoryDownloadButtonContent({ reelId }: { reelId: string }) {
     const itemId = highlightState.currentItemId;
     if (!itemId) return void message.error("Unable to find the current story item.");
     void run(async () => {
-      await downloadPost(itemId, undefined, { viaBrowserDownloads: true });
+      const normalizedItemId = itemId.split("_")[0];
+      const current = (await loadItems()).find((item) => item.id === itemId || item.id === normalizedItemId);
+      if (current) {
+        await quickDownload([current], { viaBrowserDownloads: true });
+      } else {
+        await downloadPost(itemId, undefined, { viaBrowserDownloads: true });
+      }
       void message.success("Download Successful");
     });
   };

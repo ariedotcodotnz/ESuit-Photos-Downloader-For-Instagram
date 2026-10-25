@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { errorMessage } from "@/shared/logger";
-import { DownloadType } from "@/shared/settings";
+import { DownloadType, FetchCountType } from "@/shared/settings";
 import { downloadMediaItem } from "../download/download-media";
 import { applyQuantityLimit } from "../download/quantity-limit";
 import type { FetchResult, MediaItem } from "../media/types";
@@ -27,10 +27,12 @@ export function useAlbumDownload({ saveProgress, clearProgress }: ResumeHandlers
   const { settingsRef } = useSettings();
   const { fetchQuery, isUseQuantityControl, folderName } = useDownloaderModal();
   const pageCounter = useRef(0);
+  const allocatedCount = useRef(0);
   const step = session.state.step;
 
   useEffect(() => {
     pageCounter.current = 0;
+    allocatedCount.current = 0;
   }, [step]);
 
   /**
@@ -77,8 +79,7 @@ export function useAlbumDownload({ saveProgress, clearProgress }: ResumeHandlers
         return skip();
       }
 
-      session.update({ downloadCount: session.state.downloadCount + 1 });
-      const index = (session.state.resumedFrom?.lastIndex ?? 0) + session.state.downloadCount;
+      const index = (session.state.resumedFrom?.lastIndex ?? 0) + ++allocatedCount.current;
       try {
         await downloadMediaItem({
           item,
@@ -100,6 +101,7 @@ export function useAlbumDownload({ saveProgress, clearProgress }: ResumeHandlers
         }
         throw error;
       }
+      session.update({ downloadCount: session.state.downloadCount + 1 });
       session.finishItem(item, "done");
       await sleep(Math.ceil(200 * Math.random() + 50));
     },
@@ -132,7 +134,11 @@ export function useAlbumDownload({ saveProgress, clearProgress }: ResumeHandlers
   const limitPage = useCallback(
     (result: FetchResult): FetchResult => {
       if (!isUseQuantityControl) return result;
-      const { items, reached } = applyQuantityLimit(result.items, settingsRef.current, session.state.items.length);
+      const candidates =
+        settingsRef.current.fetchingCountType === FetchCountType.BY_PHOTOS_COUNT
+          ? result.items.filter((item) => !session.hasItem(item))
+          : result.items;
+      const { items, reached } = applyQuantityLimit(candidates, settingsRef.current, session.state.items.length);
       return { ...result, items, hasMore: result.hasMore && !reached };
     },
     [isUseQuantityControl, session, settingsRef],
@@ -142,50 +148,55 @@ export function useAlbumDownload({ saveProgress, clearProgress }: ResumeHandlers
   const run = useCallback(
     async (resumeCursor?: string) => {
       if (!fetchQuery) return;
+      allocatedCount.current = 0;
       await downloadHistory.load();
       let nextParams: unknown = null;
       let isFirstPage = true;
       let checkpointCursor = resumeCursor;
       const currentIndex = () => (session.state.resumedFrom?.lastIndex ?? 0) + session.state.downloadCount;
 
-      while (!session.state.stopRequested) {
-        session.update({ isFetchingNextPage: true });
-        const settings = settingsRef.current;
-        const page = limitPage(
-          await fetchQuery({
-            nextParams,
-            resumeCursor: isFirstPage ? resumeCursor : undefined,
-            isSkipDownloadedFile: settings.isSkipDownloadedFile,
-            isFileIdDownloaded: (id) => downloadHistory.has(id),
-          }).finally(() => session.update({ isFetchingNextPage: false })),
-        );
-        isFirstPage = false;
+      try {
+        while (!session.state.stopRequested) {
+          session.update({ isFetchingNextPage: true });
+          const settings = settingsRef.current;
+          const page = limitPage(
+            await fetchQuery({
+              nextParams,
+              resumeCursor: isFirstPage ? resumeCursor : undefined,
+              isSkipDownloadedFile: settings.isSkipDownloadedFile,
+              isFileIdDownloaded: (id) => downloadHistory.has(id),
+            }).finally(() => session.update({ isFetchingNextPage: false })),
+          );
+          isFirstPage = false;
 
-        // Several detail batches may replay the same listing. Keep its first
-        // index until every batch has finished, rather than moving it forward.
-        if (page.replayCursor !== undefined && page.replayCursor !== checkpointCursor) {
-          await saveProgress(page.replayCursor, currentIndex());
-          checkpointCursor = page.replayCursor;
-        }
-        if (session.state.stopRequested || !(await downloadAll(page.items))) return;
-        if (page.cursorToSave != null) {
-          await saveProgress(page.cursorToSave, currentIndex());
-          checkpointCursor = page.cursorToSave;
-        }
-        if (session.state.stopRequested) return;
-
-        if (!page.hasMore) {
-          session.update({ scanComplete: true });
-          await sleep(2_000);
-          if (!session.state.stopRequested) await clearProgress();
-          return;
-        }
-        if (!page.skipWaiting) {
-          await pauseToAvoidRestriction();
+          // Several detail batches may replay the same listing. Keep its first
+          // index until every batch has finished, rather than moving it forward.
+          if (page.replayCursor !== undefined && page.replayCursor !== checkpointCursor) {
+            await saveProgress(page.replayCursor, currentIndex());
+            checkpointCursor = page.replayCursor;
+          }
+          if (session.state.stopRequested || !(await downloadAll(page.items))) return;
+          if (page.cursorToSave != null) {
+            await saveProgress(page.cursorToSave, currentIndex());
+            checkpointCursor = page.cursorToSave;
+          }
           if (session.state.stopRequested) return;
-          await applyRequestDelay();
+
+          if (!page.hasMore) {
+            session.update({ scanComplete: true });
+            await sleep(2_000);
+            if (!session.state.stopRequested) await clearProgress();
+            return;
+          }
+          if (!page.skipWaiting) {
+            await pauseToAvoidRestriction();
+            if (session.state.stopRequested) return;
+            await applyRequestDelay();
+          }
+          nextParams = page.nextParams;
         }
-        nextParams = page.nextParams;
+      } finally {
+        downloadHistory.flush?.();
       }
     },
     [

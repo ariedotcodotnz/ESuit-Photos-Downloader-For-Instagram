@@ -14,7 +14,7 @@ export const STEP_INDICATOR_CLASS = "igdl-step-indicator";
 
 /** Index of the carousel slide currently shown in the post containing `element`. */
 function currentSlideIndex(element: HTMLElement): number {
-  const indicator = element.closest("article,main")?.querySelector(`.${STEP_INDICATOR_CLASS}`);
+  const indicator = element.closest("article,[role='dialog'],main")?.querySelector(`.${STEP_INDICATOR_CLASS}`);
   const dots = Array.from(indicator?.firstChild?.childNodes ?? []) as Element[];
   const index = dots.findIndex((dot) => window.getComputedStyle(dot).opacity === "1");
   return Math.max(0, index);

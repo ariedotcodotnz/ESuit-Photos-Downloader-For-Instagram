@@ -50,6 +50,9 @@ const isFirstPage = (context: FetchContext<ProfilePage>, page: ProfilePage) => !
 
 const saveable = (strategy: FetchStrategy, cursor: string | null | undefined) => encodeCursor(strategy, cursor ?? "");
 
+const nonEmptyCursor = (cursor: string | null | undefined): string | null =>
+  cursor && cursor !== "None" ? cursor : null;
+
 /** Full name from Relay's store when Instagram has loaded the profile. */
 function profileFullName(target: ProfileTarget, fallback?: string): string {
   const name = getHook().readRelayRecord(`XDTUserDict:${target.id}`, "full_name");
@@ -64,12 +67,14 @@ async function fetchV1Page(
 ): Promise<ProfileResult> {
   const cursor = page.strategy === "rest" ? page.cursor : null;
   const feed = await apiGet<V1Feed>(path, { query: { count: 12, ...(cursor ? { max_id: cursor } : {}) } });
+  const nextCursor = nonEmptyCursor(feed.next_max_id);
+  const hasMore = !!feed.more_available && nextCursor !== null;
   return {
     items: toMediaItems(select(feed).map((media) => withAuthor(media))),
-    hasMore: !!feed.more_available,
-    nextParams: { strategy: "rest", cursor: feed.next_max_id ?? null },
+    hasMore,
+    nextParams: { strategy: "rest", cursor: nextCursor },
     replayCursor: saveable("rest", cursor),
-    cursorToSave: feed.more_available ? saveable("rest", feed.next_max_id) : null,
+    cursorToSave: hasMore ? saveable("rest", nextCursor) : null,
   };
 }
 
@@ -90,12 +95,14 @@ export async function fetchProfilePosts(
       const connection = readConnection<IgMedia>(payloads, "xdt_api__v1__feed__user_timeline_graphql_connection");
       const nodes = (connection.edges ?? []).map(({ node }) => node);
       const fullName = profileFullName(target, nodes[0]?.user?.full_name);
+      const endCursor = nonEmptyCursor(connection.page_info?.end_cursor);
+      const hasMore = !!connection.page_info?.has_next_page && endCursor !== null;
       return {
         items: toMediaItems(nodes.map((node) => ({ ...node, authorName: target.username, fullName }))),
-        hasMore: !!connection.page_info?.has_next_page,
-        nextParams: { strategy: "graphql", cursor: connection.page_info?.end_cursor ?? null },
+        hasMore,
+        nextParams: { strategy: "graphql", cursor: endCursor },
         replayCursor: saveable("graphql", page.cursor),
-        cursorToSave: connection.page_info?.has_next_page ? saveable("graphql", connection.page_info.end_cursor) : null,
+        cursorToSave: hasMore ? saveable("graphql", endCursor) : null,
       };
     },
     () => fetchV1Page(`/api/v1/feed/user/${target.id}/`, page, (feed) => feed.items ?? []),
@@ -136,20 +143,21 @@ export async function fetchProfileReels(
       });
       const connection = readConnection<{ media: IgMedia }>(payloads, "xdt_api__v1__clips__user__connection_v2");
       const pendingIds = (connection.edges ?? []).map(({ node }) => node.media.pk);
-      const hasMorePages = !!connection.page_info?.has_next_page;
+      const endCursor = nonEmptyCursor(connection.page_info?.end_cursor);
+      const hasMorePages = !!connection.page_info?.has_next_page && endCursor !== null;
       return {
         items: [],
         hasMore: hasMorePages || pendingIds.length > 0,
         nextParams: {
           strategy: "graphql",
-          cursor: connection.page_info?.end_cursor ?? null,
+          cursor: endCursor,
           listingCursor: page.cursor,
           pendingIds,
           hasMorePages,
         },
         replayCursor: saveable("graphql", page.cursor),
-        cursorToSave:
-          pendingIds.length === 0 && hasMorePages ? saveable("graphql", connection.page_info?.end_cursor) : null,
+        cursorToSave: pendingIds.length === 0 && hasMorePages ? saveable("graphql", endCursor) : null,
+        skipWaiting: true,
       };
     },
     // REST fallback: the reels that also appear on the profile feed.
@@ -231,20 +239,21 @@ export async function fetchProfileTagged(
       });
       const connection = readConnection<TaggedNode>(payloads, "xdt_api__v1__usertags__user_id__feed_connection");
       const pendingItems = (connection.edges ?? []).map(({ node }) => toPlaceholder(node));
-      const endCursor = connection.page_info?.end_cursor ?? null;
+      const endCursor = nonEmptyCursor(connection.page_info?.end_cursor);
+      const hasMorePages = endCursor !== null && (connection.page_info?.has_next_page ?? true);
       return {
         items: [],
-        hasMore: pendingItems.length > 0 || (!!endCursor && endCursor !== "None"),
+        hasMore: pendingItems.length > 0 || hasMorePages,
         nextParams: {
           strategy: "graphql",
           cursor: endCursor,
           listingCursor: page.cursor,
           pendingItems,
-          hasMorePages: !!connection.page_info?.has_next_page,
+          hasMorePages,
         },
         replayCursor: saveable("graphql", page.cursor),
-        cursorToSave:
-          pendingItems.length === 0 && connection.page_info?.has_next_page ? saveable("graphql", endCursor) : null,
+        cursorToSave: pendingItems.length === 0 && hasMorePages ? saveable("graphql", endCursor) : null,
+        skipWaiting: true,
       };
     },
     () => fetchV1Page(`/api/v1/usertags/${target.id}/feed/`, page, (feed) => feed.items ?? []),

@@ -1,23 +1,26 @@
 import { CheckOutlined } from "@ant-design/icons";
 import { Alert, App, Button, Checkbox, Col, Empty, Row, Spin } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { downloadMediaItem, resetFilenameCounter } from "../../download/download-media";
 import { extractErrorMessage, friendlyErrorMessage } from "../../download/errors";
 import { useDirectoryPicker } from "../../hooks/use-directory-picker";
 import type { MediaItem } from "../../media/types";
+import { downloadHistory } from "../../state/download-history";
 import { useDownloaderModal } from "../../state/downloader-modal";
 import { useSettings } from "../../state/settings";
 import { ViewLayout } from "../ViewLayout";
 
 /** Shows every file of a post/story set as a grid to pick from. */
 export function SelectToDownloadView() {
-  const { fetchQuery } = useDownloaderModal();
+  const { fetchQuery, folderName } = useDownloaderModal();
   const { settingsRef } = useSettings();
   const { requestDirectory } = useDirectoryPicker();
   const { message } = App.useApp();
   const [items, setItems] = useState<MediaItem[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [downloaded, setDownloaded] = useState<string[]>([]);
+  const [downloading, setDownloading] = useState(false);
+  const downloadingRef = useRef(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
 
@@ -26,6 +29,7 @@ export function SelectToDownloadView() {
     let cancelled = false;
     setItems(null);
     setSelected([]);
+    setDownloaded([]);
     setLoadError(null);
     fetchQuery({ nextParams: null })
       .then(({ items: fetched }) => {
@@ -44,25 +48,37 @@ export function SelectToDownloadView() {
   }, [fetchQuery, loadAttempt]);
 
   const download = async () => {
-    if (!items || !(await requestDirectory())) return;
-    resetFilenameCounter();
-    const settings = settingsRef.current;
-    const chosen = items.filter((item) => selected.includes(item.id));
-    for (const [i, item] of chosen.entries()) {
-      await downloadMediaItem({
-        item,
-        index: i + 1,
-        filenameTemplate: settings.filenameFormats,
-        imageFormat: settings.formatType,
-        isGenFolder: settings.isGenFolder,
-        isSplitFolder: settings.isSplitFolder,
-        viaBrowserDownloads: false,
-        isDownloadVideoThumbnail: settings.isDownloadVideoThumbnail,
-        isMergingVideo: settings.isMergingVideo,
-      });
-      setDownloaded((ids) => [...ids, item.id]);
+    if (downloadingRef.current || !items || !(await requestDirectory())) return;
+    downloadingRef.current = true;
+    setDownloading(true);
+    try {
+      resetFilenameCounter();
+      const settings = settingsRef.current;
+      const chosen = items.filter((item) => selected.includes(item.id));
+      for (const [i, item] of chosen.entries()) {
+        await downloadMediaItem({
+          item,
+          index: i + 1,
+          filenameTemplate: settings.filenameFormats,
+          imageFormat: settings.formatType,
+          isGenFolder: settings.isGenFolder,
+          isSplitFolder: settings.isSplitFolder,
+          folderName,
+          viaBrowserDownloads: false,
+          isDownloadVideoThumbnail: settings.isDownloadVideoThumbnail,
+          isMergingVideo: settings.isMergingVideo,
+        });
+        setDownloaded((ids) => [...ids, item.id]);
+      }
+      void message.success("Download Successful");
+    } catch (error) {
+      console.error(error);
+      void message.error(friendlyErrorMessage(extractErrorMessage(error)));
+    } finally {
+      downloadHistory.flush?.();
+      downloadingRef.current = false;
+      setDownloading(false);
     }
-    void message.success("Download Successful");
   };
 
   const toggle = (id: string, checked: boolean) =>
@@ -73,7 +89,12 @@ export function SelectToDownloadView() {
     <ViewLayout
       title="Select to Download"
       footer={
-        <Button disabled={selected.length === 0} type="primary" onClick={() => void download()}>
+        <Button
+          disabled={selected.length === 0 || downloading}
+          loading={downloading}
+          type="primary"
+          onClick={() => void download()}
+        >
           Select a Folder to Download
         </Button>
       }

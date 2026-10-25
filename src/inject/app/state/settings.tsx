@@ -45,11 +45,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSettings(next);
   }, []);
 
+  const replace = useCallback((next: UserSettings) => {
+    settingsRef.current = next;
+    setSettings(next);
+  }, []);
+
   const save = useCallback(() => background.saveSettings(settingsRef.current), []);
 
   const value = useMemo<SettingsContextValue>(
-    () => ({ settings, settingsRef, loaded, update, replace: setSettings, save }),
-    [settings, loaded, update, save],
+    () => ({ settings, settingsRef, loaded, update, replace, save }),
+    [settings, loaded, update, replace, save],
   );
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 }

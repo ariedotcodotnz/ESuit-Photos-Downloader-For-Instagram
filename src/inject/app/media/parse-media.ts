@@ -32,6 +32,14 @@ export interface IgMedia {
     original_sound_info?: { progressive_download_url?: string; original_audio_title?: string } | null;
     music_info?: { music_asset_info?: { progressive_download_url?: string; title?: string } | null } | null;
   } | null;
+  music_metadata?: {
+    music_info?: { music_asset_info?: { progressive_download_url?: string; title?: string } | null } | null;
+  } | null;
+  story_music_stickers?:
+    | {
+        music_asset_info?: { progressive_download_url?: string; title?: string } | null;
+      }[]
+    | null;
 }
 
 /** A media object annotated with the author's names, ready for {@link toMediaItems}. */
@@ -76,7 +84,10 @@ function toVideoItem(media: AuthoredMedia): MediaItem | undefined {
   const images = media.image_versions2?.candidates ?? [];
   if (images.length === 0) return undefined;
   const sound = media.clips_metadata?.original_sound_info;
-  const music = media.clips_metadata?.music_info?.music_asset_info;
+  const music =
+    media.clips_metadata?.music_info?.music_asset_info ??
+    media.music_metadata?.music_info?.music_asset_info ??
+    media.story_music_stickers?.[0]?.music_asset_info;
   return {
     id: media.pk,
     thumbnail: pickLargest(images) ?? "",
