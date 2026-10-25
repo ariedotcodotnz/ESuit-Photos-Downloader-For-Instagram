@@ -236,6 +236,60 @@ try {
   await page.screenshot({ path: join(out, "story-selection-recovered.png") });
   await page.locator("button.ant-modal-close").click();
 
+  // Avatar downloads should reuse the profile's loaded picture even when the
+  // user-info API is rate limited. With no cached picture, explain a blank 429.
+  await page.goto("https://www.instagram.com/someone/");
+  const avatarIcon = page.locator("#profile-avatar .ant-avatar");
+  await avatarIcon.waitFor({ timeout: 15000 });
+  check("Instagram's profile picture still renders", await page.locator(".ig-profile-pic").isVisible());
+  const beforeAvatar = await worker.evaluate(() => globalThis.__requestedDownloads.length);
+  await avatarIcon.click();
+  await page.getByText("Download Successful").first().waitFor({ timeout: 10000 });
+  const avatarDownloads = await worker.evaluate(() => globalThis.__requestedDownloads);
+  check(
+    "avatar download uses the loaded HD picture with the correct folder",
+    avatarDownloads.length === beforeAvatar + 1 &&
+      avatarDownloads.at(-1).url === "https://scontent.cdninstagram.com/v/avatar-hd.jpg" &&
+      avatarDownloads.at(-1).filename === "IG Album Downloader/Some One/avatar.jpg",
+  );
+  check(
+    "loaded avatar does not call the rate-limited user-info API",
+    !(await page.evaluate(() => window.__apiCalls ?? [])).includes("/api/v1/users/50230154343/info/"),
+  );
+
+  await page.goto("https://www.instagram.com/someone/?avatarFromDom");
+  await avatarIcon.waitFor({ timeout: 15000 });
+  await avatarIcon.click();
+  await page.getByText("Download Successful").first().waitFor({ timeout: 10000 });
+  const displayedAvatarDownloads = await worker.evaluate(() => globalThis.__requestedDownloads);
+  check(
+    "avatar can use its displayed image when profile metadata is missing",
+    displayedAvatarDownloads.length === avatarDownloads.length + 1 &&
+      displayedAvatarDownloads.at(-1).url === "https://scontent.cdninstagram.com/v/avatar-small.jpg" &&
+      displayedAvatarDownloads.at(-1).filename === "IG Album Downloader/50230154343/avatar.jpg" &&
+      !(await page.evaluate(() => window.__apiCalls ?? [])).includes("/api/v1/users/50230154343/info/"),
+  );
+
+  await page.goto("https://www.instagram.com/someone/?emptyAvatar");
+  await avatarIcon.waitFor({ timeout: 15000 });
+  const rateLimitErrorStart = consoleErrors.length;
+  await avatarIcon.click();
+  await page
+    .getByText("Instagram is temporarily limiting requests. Please wait before trying again.", { exact: true })
+    .waitFor({ timeout: 10000 });
+  await avatarIcon.waitFor({ state: "visible", timeout: 10000 });
+  const avatarCalls = await page.evaluate(() => window.__apiCalls);
+  check(
+    "uncached avatar reports a blank HTTP 429 without retrying",
+    avatarCalls.filter((path) => path === "/api/v1/users/50230154343/info/").length === 1 &&
+      (await worker.evaluate(() => globalThis.__requestedDownloads.length)) === displayedAvatarDownloads.length,
+  );
+  check(
+    "avatar failure releases the busy state and is handled once",
+    (await avatarIcon.isVisible()) && consoleErrors.splice(rateLimitErrorStart).length === 1,
+  );
+  await page.screenshot({ path: join(out, "avatar-rate-limit.png") });
+
   const finalErrors = consoleErrors.filter((e) => !/favicon|Warning:/i.test(e));
   check("still no page errors after downloads", finalErrors.length === 0, finalErrors.join(" | ").slice(0, 500));
 

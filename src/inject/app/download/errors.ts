@@ -13,6 +13,8 @@ const RATE_LIMIT_MARKERS = [
   "Temporarily",
   "again later",
   "rate_limit_exceeded",
+  "HTTP 429",
+  "Too Many Requests",
 ];
 
 export function isRateLimitError(message: string): boolean {
@@ -25,7 +27,7 @@ export function friendlyErrorMessage(message: string): string {
     return "The disk where the download folder is located is either full or disconnected. Please check your disk.";
   }
   if (isRateLimitError(message)) {
-    return "Instagram is temporarily limiting requests from your account because of too many API calls. The restriction is usually lifted automatically within 4-8 hours. Please try again later.";
+    return "Instagram is temporarily limiting requests. Please wait before trying again.";
   }
   if (message.includes("HTTP 500 HTTP_SERVER_ERROR")) {
     return "The requested resource seems to be missing on Instagram's side, which typically happens for content from several years ago.";
@@ -37,6 +39,8 @@ export function friendlyErrorMessage(message: string): string {
 export function extractErrorMessage(error: unknown): string {
   if (!error) return "unknown errors";
   const e = error as Record<string, unknown> & Record<number, Record<string, unknown> | undefined>;
+  // Instagram's AjaxError can have an empty message and response body for 429.
+  if (e.statusCode === 429) return "HTTP 429 Too Many Requests";
   const nested = (value: unknown) => (value as { message?: unknown } | undefined)?.message;
   const candidates = [
     nested(e.error),

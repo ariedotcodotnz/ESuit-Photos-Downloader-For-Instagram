@@ -1,5 +1,6 @@
 import { App } from "antd";
 import { useCallback, useState } from "react";
+import { extractErrorMessage, friendlyErrorMessage, isRateLimitError } from "../download/errors";
 
 /**
  * Wraps an async action with a busy flag (for spinners) and reports failures
@@ -16,7 +17,8 @@ export function useBusyAction(failureMessage = "Download failed") {
         await action();
       } catch (error) {
         console.error(error);
-        void message.error(failureMessage);
+        const detail = extractErrorMessage(error);
+        void message.error(isRateLimitError(detail) ? friendlyErrorMessage(detail) : failureMessage);
       } finally {
         setBusy(false);
       }

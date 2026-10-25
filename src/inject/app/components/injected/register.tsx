@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { InjectedComponentProps } from "@/inject/shared/hook-api";
 import type { PatchTargetName } from "@/inject/shared/patch-targets";
 import { getHook } from "../../env";
+import type { IgUserInfo } from "../../ig/instapi";
 import { highlightState } from "../../ig/route";
 import { AudioDownloadButton } from "./AudioDownloadButton";
 import { AvatarDownloadButton } from "./AvatarDownloadButton";
@@ -97,9 +98,15 @@ export function registerInjectedComponents(): void {
     <div className={STEP_INDICATOR_CLASS}>{lastElement}</div>
   ));
 
-  register<{ user?: { pk?: string } }>("PolarisProfileAvatar.next.react", ({ payload, lastElement }) => {
+  register<{ user?: Partial<IgUserInfo> }>("PolarisProfileAvatar.next.react", ({ payload, lastElement }) => {
     const userId = payload?.user?.pk;
-    return userId ? <AvatarDownloadButton userId={userId}>{lastElement}</AvatarDownloadButton> : lastElement;
+    return userId ? (
+      <AvatarDownloadButton userId={userId} user={payload?.user}>
+        {lastElement}
+      </AvatarDownloadButton>
+    ) : (
+      lastElement
+    );
   });
 
   // Selection checkboxes on every kind of grid item.

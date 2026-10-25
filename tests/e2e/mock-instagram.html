@@ -75,6 +75,14 @@
         module.exports = {
           apiGet: async function (path) {
             window.__apiCalls = (window.__apiCalls || []).concat(path);
+            if (path === "/api/v1/users/50230154343/info/") {
+              throw Object.assign(new Error(""), {
+                name: "AjaxError",
+                statusCode: 429,
+                responseObject: null,
+                responseText: "",
+              });
+            }
             var data = {
               items: [
                 {
@@ -125,6 +133,18 @@
           return h("div", { className: "ig-story" }, "Story player");
         };
       });
+      __d("PolarisProfileAvatar.next.react", [], function (g, r, d, n, l, module, exports) {
+        exports.default = function ProfileAvatar() {
+          if (new URLSearchParams(location.search).has("emptyAvatar")) return h("span", null, "No picture loaded");
+          return h("img", {
+            className: "ig-profile-pic",
+            src: "https://scontent.cdninstagram.com/v/avatar-small.jpg",
+            alt: "Profile picture",
+            width: 100,
+            height: 100,
+          });
+        };
+      });
     </script>
   </head>
   <body>
@@ -135,6 +155,17 @@
         var FeedNavItem = require("PolarisFeedNavItem.react").default;
         var SaveButton = require("PolarisSaveButton.react").default;
         var StoryPlayer = require("PolarisStoriesV3ReelPlayerContainer.react").default;
+        var ProfileAvatar = require("PolarisProfileAvatar.next.react").default;
+        var avatarUser = { pk: "50230154343" };
+        var avatarParams = new URLSearchParams(location.search);
+        if (!avatarParams.has("emptyAvatar") && !avatarParams.has("avatarFromDom")) {
+          Object.assign(avatarUser, {
+            username: "someone",
+            full_name: "Some One",
+            profile_pic_url: "https://scontent.cdninstagram.com/v/avatar-small.jpg",
+            hd_profile_pic_url_info: { url: "https://scontent.cdninstagram.com/v/avatar-hd.jpg" },
+          });
+        }
         var route = { rootView: { props: { id: "999", page_logging: { name: "profilePage" } } }, params: { username: "someone" } };
         require("ReactDOM-prod.classic")
           .createRoot(document.getElementById("root"))
@@ -142,6 +173,7 @@
             h(RouteContext.Provider, { value: route },
               h("nav", { id: "nav" }, h(FeedNavItem)),
               h("main", { id: "post" }, h(SaveButton, { postId: "3141592653589793" })),
+              h("div", { id: "profile-avatar" }, h(ProfileAvatar, { user: avatarUser })),
               location.pathname.startsWith("/stories/") &&
                 h("div", { id: "story", style: { width: 400, height: 600 } },
                   h(StoryPlayer, { reel: { __id: "XDTReelDict:1563074505" } })),

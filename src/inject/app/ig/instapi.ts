@@ -1,6 +1,6 @@
 import { createLogger } from "@/shared/logger";
 import { isDebug } from "../env";
-import { toMediaItems, withAuthor, type IgMedia } from "../media/parse-media";
+import { toMediaItems, withAuthor, type IgImageCandidate, type IgMedia } from "../media/parse-media";
 import type { MediaItem } from "../media/types";
 import { requireIg, type IgApiGetOptions } from "./modules";
 
@@ -68,7 +68,9 @@ export interface IgUserInfo {
   username: string;
   full_name?: string;
   profile_pic_url?: string;
+  profile_pic_url_hd?: string;
   hd_profile_pic_url_info?: { url?: string };
+  hd_profile_pic_versions?: IgImageCandidate[];
 }
 
 export async function fetchUserInfo(userId: string): Promise<IgUserInfo | undefined> {
