@@ -5,7 +5,7 @@ import { rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
 
-const TARGETS = ["pages", "content", "hook", "app", "worker"];
+const TARGETS = ["hook", "app", "pages"];
 const watch = process.argv.includes("--watch");
 
 // Targets share dist/, so it is cleaned once here instead of per target.

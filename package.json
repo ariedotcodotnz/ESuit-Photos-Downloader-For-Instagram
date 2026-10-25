@@ -23,17 +23,17 @@
   },
   "dependencies": {
     "@ant-design/icons": "^5.6.1",
-    "@ffmpeg/ffmpeg": "^0.12.15",
-    "@ffmpeg/util": "^0.12.2",
     "@yaireo/tagify": "^4.39.0",
     "antd": "~5.29.3",
     "dayjs": "^1.11.13",
     "fast-xml-parser": "^5.2.5",
     "lodash-es": "^4.17.21",
+    "mediabunny": "^1.62.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@crxjs/vite-plugin": "^3.0.0",
     "@eslint/js": "^9.39.0",
     "@types/chrome": "^0.1.0",
     "@types/lodash-es": "^4.17.12",

@@ -16,7 +16,7 @@ libraries and a map from its minified code to this source tree are in
 - **Quick downloads**: an icon next to the save button of posts/reels (whole post, current carousel
   slide, or pick files), story/highlight player buttons, "Download Highlights", HD profile pictures,
   reel audio only, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> and a right-click menu entry.
-- **HD Auto-Merge**: downloads the separate DASH video/audio streams and muxes them with ffmpeg.wasm.
+- **HD Auto-Merge**: downloads the separate DASH video/audio streams and muxes them with Mediabunny and WebCodecs.
 - Filename templates (`-**username code**-_-**date**-` …) with a tag editor and presets, author
   folders and posts/reels/tagged/saved/highlights sub-folders, image re-encoding (jpg/png/webp).
 - Skip already-downloaded files, resume interrupted downloads, limit by count / days / date range,
@@ -96,7 +96,7 @@ patches that module system to place its UI _inside_ Instagram's own components.
             │   resolves Instagram's React for the app bundle       │
             │ injects/app.js (MAIN world, document_end)             │
             │   antd UI bound to Instagram's React; Instagram API   │
-            │   client; download pipeline; ffmpeg.wasm Worker       │
+            │   client; download pipeline; Mediabunny + WebCodecs   │
             └───────────────┬───────────────────────▲───────────────┘
   chrome.runtime.sendMessage│ (externally_connectable)│ tabs.sendMessage → postMessage
             ┌───────────────▼───────────────────────┴───────────────┐
@@ -115,7 +115,7 @@ patches that module system to place its UI _inside_ Instagram's own components.
   - `ig/` typed access to Instagram internals (`modules.ts` lists every module relied upon),
     `instapi.ts` (v1 REST via Instagram's client), `graphql.ts` (persisted queries)
   - `fetchers/` one paginated source per album type; GraphQL with REST fallbacks
-  - `download/` filename/folder logic, DASH segment download, FFmpeg merge, image conversion,
+  - `download/` filename/folder logic, DASH segment download, Mediabunny + WebCodecs merge, image conversion,
     File System Access writes
   - `state/`, `hooks/`, `components/` React state, the download loop and UI
 - **`src/background/`** — RPC server for the page (`page-api.ts`, origin-checked), storage-backed
@@ -129,13 +129,11 @@ patches that module system to place its UI _inside_ Instagram's own components.
 
 `scripts/build.mjs` runs each Vite target from `vite.config.ts` into `dist/`:
 
-| Target    | Output                                                                   | Format                               |
-| --------- | ------------------------------------------------------------------------ | ------------------------------------ |
-| `pages`   | `background.js`, `pages/*`, `manifest.json`, `rules/csp.json`, `public/` | ES modules                           |
-| `content` | `content/bridge.js`                                                      | IIFE                                 |
-| `hook`    | `injects/hook.js`                                                        | IIFE                                 |
-| `app`     | `injects/app.js`, `injects/app.css`                                      | IIFE, wrapped for Instagram's React  |
-| `worker`  | `injects/ffmpeg-worker.js`                                               | ES module (started from a blob: URL) |
+| Target  | Output                                                                                              | Format                                    |
+| ------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `hook`  | `injects/hook.js`                                                                                   | IIFE                                      |
+| `app`   | `injects/app.js`, `injects/app.css`                                                                 | IIFE, wrapped for Instagram's React       |
+| `pages` | `service-worker-loader.js`, `content/bridge.js`, `pages/*`, `manifest.json`, `rules/csp.json`, etc. | `@crxjs/vite-plugin` (ESM + content IIFE) |
 
 Builds use ASCII output: Chrome refuses content scripts containing Unicode noncharacters (one comes
 from fast-xml-parser's XML-name regex) and reports them as "not UTF-8 encoded".

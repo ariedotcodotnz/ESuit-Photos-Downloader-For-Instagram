@@ -1,19 +1,24 @@
 /**
- * The extension is built as several independent Vite targets, selected with
- * `--mode` (see `scripts/build.mjs`, which runs them all):
+ * The extension is built with Vite + `@crxjs/vite-plugin` across three targets,
+ * selected with `--mode` (see `scripts/build.mjs`, which runs them in order):
  *
- *   pages   popup + options pages and the background service worker (ES modules)
- *   content isolated-world content script            -> content/bridge.js (IIFE)
  *   hook    MAIN-world module hook, document_start    -> injects/hook.js   (IIFE)
  *   app     MAIN-world downloader UI, document_end    -> injects/app.js    (IIFE)
- *   worker  FFmpeg web worker, loaded via a blob: URL -> injects/ffmpeg-worker.js
+ *   pages   CRXJS extension build: popup + options pages, background service
+ *           worker, isolated-world content/bridge.ts (standalone IIFE), and
+ *           manifest.json
  *
- * Content scripts cannot be ES modules, hence the separate IIFE builds.
+ * `hook` and `app` run in Instagram's MAIN world (`app` externalises `react`
+ * and `react-dom` to Instagram's in-page React instance via a runtime wrapper),
+ * so they are built as self-contained IIFE bundles first and registered in the
+ * final CRX manifest via `renderCrxManifest`.
  */
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { defineConfig, type Plugin, type UserConfig } from "vite";
+import { crx } from "@crxjs/vite-plugin";
+import { defineConfig, type Plugin, type PluginOption, type UserConfig } from "vite";
 import pkg from "./package.json" with { type: "json" };
-import { createCspRules, createManifest, OUTPUT } from "./src/manifest";
+import { createCrxManifest, createCspRules, MAIN_WORLD_CONTENT_SCRIPTS, OUTPUT } from "./src/manifest";
 import { APP_BUNDLE_GLOBALS, HOOK_GLOBAL } from "./src/shared/constants";
 
 const root = import.meta.dirname;
@@ -39,13 +44,40 @@ const onwarn: NonNullable<NonNullable<UserConfig["build"]>["rollupOptions"]>["on
   warn(warning);
 };
 
-/** Emits manifest.json and the declarativeNetRequest ruleset next to the pages. */
-function extensionManifest(): Plugin {
+/**
+ * Emits the declarativeNetRequest ruleset, registers the pre-built `app.css`
+ * asset in the Rollup bundle, and attaches the pre-built MAIN-world scripts
+ * (`hook.js`, `app.js`, and `app.css`) to the manifest rendered by `@crxjs/vite-plugin`.
+ */
+function extensionFinalize(): Plugin & { renderCrxManifest?: (manifest: chrome.runtime.ManifestV3) => unknown } {
   return {
-    name: "extension-manifest",
-    generateBundle() {
-      this.emitFile({ type: "asset", fileName: "manifest.json", source: JSON.stringify(createManifest(pkg), null, 2) });
+    name: "extension-finalize",
+    generateBundle(_options, bundle) {
       this.emitFile({ type: "asset", fileName: OUTPUT.cspRules, source: JSON.stringify(createCspRules(), null, 2) });
+      if (!bundle[OUTPUT.appCss]) {
+        this.emitFile({
+          type: "asset",
+          fileName: OUTPUT.appCss,
+          source: readFileSync(resolve(outDir, OUTPUT.appCss)),
+        });
+      }
+    },
+    renderCrxManifest(manifest) {
+      const scripts = manifest.content_scripts ?? [];
+      for (const script of scripts) {
+        if (script.js?.some((file) => file.includes("bridge"))) {
+          script.css = [OUTPUT.appCss];
+        }
+      }
+      manifest.content_scripts = [
+        ...scripts,
+        ...MAIN_WORLD_CONTENT_SCRIPTS.map((script) => ({
+          ...script,
+          matches: [...script.matches],
+          js: [...script.js],
+        })),
+      ] as chrome.runtime.ManifestV3["content_scripts"];
+      return manifest;
     },
   };
 }
@@ -93,7 +125,7 @@ interface IifeTarget {
   cssFileName?: string;
   external?: string[];
   globals?: Record<string, string>;
-  plugins?: Plugin[];
+  plugins?: PluginOption[];
 }
 
 function scriptTarget({
@@ -122,36 +154,6 @@ function scriptTarget({
 }
 
 const targets: Record<string, UserConfig> = {
-  pages: {
-    ...common,
-    root: r("src"),
-    base: "/",
-    publicDir: r("public"),
-    plugins: [extensionManifest()],
-    build: {
-      outDir,
-      emptyOutDir: false,
-      target,
-      chunkSizeWarningLimit,
-      modulePreload: { polyfill: false },
-      rollupOptions: {
-        onwarn,
-        input: {
-          popup: r("src/pages/popup/index.html"),
-          options: r("src/pages/options/index.html"),
-          background: r("src/background/index.ts"),
-        },
-        output: {
-          entryFileNames: (chunk) => (chunk.name === "background" ? OUTPUT.background : "assets/[name]-[hash].js"),
-          // Libraries are only used by the pages; the service worker never imports this chunk.
-          manualChunks: (id) => (id.includes("node_modules") ? "vendor" : undefined),
-        },
-      },
-    },
-  },
-
-  content: scriptTarget({ entry: "src/content/bridge.ts", fileName: OUTPUT.contentBridge, name: "IgdlBridge" }),
-
   hook: scriptTarget({ entry: "src/inject/hook/index.ts", fileName: OUTPUT.hook, name: "IgdlHook" }),
 
   app: scriptTarget({
@@ -169,12 +171,36 @@ const targets: Record<string, UserConfig> = {
     plugins: [wrapForInstagramReact()],
   }),
 
-  worker: scriptTarget({
-    entry: "src/inject/ffmpeg/worker.ts",
-    fileName: OUTPUT.ffmpegWorker,
-    name: "IgdlFfmpegWorker",
-    format: "es",
-  }),
+  pages: {
+    ...common,
+    root: r("src"),
+    base: "/",
+    publicDir: r("public"),
+    plugins: [
+      crx({
+        manifest: createCrxManifest(pkg),
+        contentScripts: {
+          injectCss: false,
+          standaloneFiles: ["content/bridge.ts"],
+        },
+      }),
+      extensionFinalize(),
+    ],
+    build: {
+      outDir,
+      emptyOutDir: false,
+      target,
+      chunkSizeWarningLimit,
+      modulePreload: { polyfill: false },
+      rollupOptions: {
+        onwarn,
+        output: {
+          // Libraries are only used by the pages; the service worker never imports this chunk.
+          manualChunks: (id) => (id.includes("node_modules") ? "vendor" : undefined),
+        },
+      },
+    },
+  },
 };
 
 export default defineConfig(({ mode }) => {

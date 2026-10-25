@@ -1,6 +1,5 @@
 dist/
 node_modules/
 reference/
-public/ffmpeg/
 package-lock.json
 tests/e2e/mock-instagram.html

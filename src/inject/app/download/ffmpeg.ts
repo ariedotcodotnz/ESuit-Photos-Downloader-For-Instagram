@@ -1,45 +1,24 @@
-import { FFmpeg, type LogEvent, type ProgressEvent } from "@ffmpeg/ffmpeg";
-import { fetchFile, toBlobURL } from "@ffmpeg/util";
-import { OUTPUT } from "@/manifest";
-import { extensionUrl } from "../env";
+import {
+  ADTS,
+  BlobSource,
+  BufferTarget,
+  Conversion,
+  Input,
+  MATROSKA,
+  MP4,
+  Mp4OutputFormat,
+  Output,
+  QTFF,
+  WEBM,
+} from "mediabunny";
 import { closeProgressSoon, showProgress, showProgressError } from "./toast";
 
-/** The wasm heap is never shrunk, so the worker is recycled after this much input. */
-const MAX_PROCESSED_BYTES = 300 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 295 * 1024 * 1024;
+const INPUT_FORMATS = [MP4, QTFF, ADTS, WEBM, MATROSKA];
+/** Interleave step in seconds when composing video and audio tracks into the same output. */
+const INTERLEAVE_STEP_SECONDS = 1;
 
-const ffmpeg = new FFmpeg();
-let processedBytes = 0;
-let hasLoadedOnce = false;
-let bundleUrlsPromise: Promise<{ classWorkerURL: string; coreURL: string; wasmURL: string }> | undefined;
 let queue: Promise<unknown> = Promise.resolve();
-
-function recycle(): void {
-  ffmpeg.terminate();
-  processedBytes = 0;
-}
-
-/**
- * ffmpeg.wasm must run in a Worker. Pages cannot start workers from
- * chrome-extension:// URLs, so the packaged worker, core and wasm are fetched
- * and handed over as blob: URLs.
- */
-async function ensureLoaded(): Promise<void> {
-  if (ffmpeg.loaded) return;
-  if (!hasLoadedOnce) showProgress("Loading FFmpeg...");
-  bundleUrlsPromise ??= Promise.all([
-    toBlobURL(extensionUrl(OUTPUT.ffmpegWorker), "text/javascript"),
-    toBlobURL(extensionUrl("ffmpeg/ffmpeg-core.js"), "text/javascript"),
-    toBlobURL(extensionUrl("ffmpeg/ffmpeg-core.wasm"), "application/wasm"),
-  ]).then(([classWorkerURL, coreURL, wasmURL]) => ({ classWorkerURL, coreURL, wasmURL }));
-  try {
-    await ffmpeg.load(await bundleUrlsPromise);
-  } catch (error) {
-    bundleUrlsPromise = undefined;
-    throw error;
-  }
-  hasLoadedOnce = true;
-}
 
 export interface MergeInput {
   video: Blob;
@@ -50,89 +29,105 @@ export interface MergeInput {
 
 async function merge({ video, audio, codec }: MergeInput): Promise<File> {
   if (video.size > MAX_VIDEO_BYTES) throw new Error(`Video exceeds the maximum size of ${MAX_VIDEO_BYTES} bytes`);
-  if (video.size + processedBytes > MAX_PROCESSED_BYTES) recycle();
+
+  const videoInput = new Input({ source: new BlobSource(video), formats: INPUT_FORMATS });
+  const audioInput = new Input({ source: new BlobSource(audio), formats: INPUT_FORMATS });
+  const target = new BufferTarget();
+  const output = new Output({
+    format: new Mp4OutputFormat({ fastStart: "in-memory" }),
+    target,
+  });
+
+  let videoConversion: Conversion | undefined;
+  let audioConversion: Conversion | undefined;
 
   try {
-    await ensureLoaded();
-  } catch (error) {
-    throw new Error(`Failed to load FFmpeg.wasm: ${String(error)}`);
-  }
+    showProgress("Merging video... 0.00%");
 
-  let log = "";
-  const onProgress = ({ progress }: ProgressEvent) =>
-    showProgress(`Merging video... ${Math.min(100, progress * 100).toFixed(2)}%`);
-  const onLog = ({ message }: LogEvent) => {
-    log += `${message}\n`;
-  };
+    videoConversion = await Conversion.init({
+      input: videoInput,
+      output,
+      composable: true,
+      tracks: "primary",
+      audio: { discard: true },
+      copy: { shiftTolerance: Infinity },
+      showWarnings: false,
+    });
 
-  try {
-    await ffmpeg.writeFile("video.mp4", await fetchFile(video));
-    await ffmpeg.writeFile("audio.mp4", await fetchFile(audio));
-    ffmpeg.on("progress", onProgress);
-    ffmpeg.on("log", onLog);
+    audioConversion = await Conversion.init({
+      input: audioInput,
+      output,
+      composable: true,
+      tracks: "primary",
+      video: { discard: true },
+      copy: { shiftTolerance: Infinity },
+      showWarnings: false,
+    });
 
-    // AAC in an MP4 container needs the ADTS→ASC bitstream filter when remuxed.
-    await ffmpeg.ffprobe([
-      "-print_format",
-      "json",
-      "-show_format",
-      "-show_streams",
-      "-select_streams",
-      "a:0",
-      "-show_entries",
-      "stream=codec_name",
-      "audio.mp4",
-      "-o",
-      "audioInfo.json",
-    ]);
-    // readFile returns ArrayBuffer-backed bytes transferred from the worker.
-    const probe = JSON.parse(await new Blob([(await ffmpeg.readFile("audioInfo.json")) as BlobPart]).text()) as {
-      streams?: { codec_name?: string }[];
+    if (videoConversion.utilizedTracks.length === 0 || audioConversion.utilizedTracks.length === 0) {
+      const reasons = [
+        ...videoConversion.discardedTracks
+          .filter((d) => d.reason !== "discarded_by_user")
+          .map((d) => `video:${d.reason}`),
+        ...audioConversion.discardedTracks
+          .filter((d) => d.reason !== "discarded_by_user")
+          .map((d) => `audio:${d.reason}`),
+      ];
+      throw new Error(
+        `Missing media tracks for merge (video=${videoConversion.utilizedTracks.length}, audio=${audioConversion.utilizedTracks.length}${reasons.length ? `, discarded=${reasons.join(",")}` : ""})`,
+      );
+    }
+
+    let videoProgress = 0;
+    let audioProgress = 0;
+    const reportProgress = () => {
+      const pct = Math.min(100, ((videoProgress + audioProgress) / 2) * 100);
+      showProgress(`Merging video... ${pct.toFixed(2)}%`);
     };
-    const isAac = probe.streams?.[0]?.codec_name === "aac";
+    videoConversion.onProgress = (progress) => {
+      videoProgress = progress;
+      reportProgress();
+    };
+    audioConversion.onProgress = (progress) => {
+      audioProgress = progress;
+      reportProgress();
+    };
 
-    await ffmpeg.exec([
-      "-i",
-      "video.mp4",
-      "-i",
-      "audio.mp4",
-      "-c",
-      "copy",
-      "-map",
-      "0:v:0",
-      "-map",
-      "1:a:0",
-      "-movflags",
-      "+faststart",
-      ...(isAac ? ["-bsf:a:0", "aac_adtstoasc"] : []),
-      "-max_muxing_queue_size",
-      "9999",
-      "output.mp4",
-    ]);
-    processedBytes += video.size;
+    await output.start();
 
-    const output = await ffmpeg.readFile("output.mp4");
-    const type = codec ? `video/mp4; codecs="${codec}"` : "video/mp4";
-    const file = new File([output as BlobPart], "merged_output.mp4", { type });
+    let until = INTERLEAVE_STEP_SECONDS;
+    while (videoConversion.state !== "done" && audioConversion.state !== "done") {
+      await Promise.all([videoConversion.execute({ until }), audioConversion.execute({ until })]);
+      until += INTERLEAVE_STEP_SECONDS;
+    }
+    await Promise.all([videoConversion.execute(), audioConversion.execute()]);
+
+    await output.finalize();
+
+    const buffer = target.buffer;
+    if (!buffer) throw new Error("Mediabunny produced an empty output buffer");
+
+    const type = codec ? `video/mp4; codecs="${codec}"` : await output.getMimeType().catch(() => "video/mp4");
+    const file = new File([buffer], "merged_output.mp4", { type });
 
     closeProgressSoon();
     return file;
   } catch (error) {
+    await Promise.allSettled([
+      videoConversion?.cancel(),
+      audioConversion?.cancel(),
+      output.state === "started" ? output.cancel() : Promise.resolve(),
+    ]);
     console.error(error);
-    console.warn(log);
     showProgressError("Failed to merge video, check the console for details");
     throw error instanceof Error ? error : new Error(String(error));
   } finally {
-    ffmpeg.off("progress", onProgress);
-    ffmpeg.off("log", onLog);
-    for (const path of ["video.mp4", "audio.mp4", "output.mp4", "audioInfo.json"]) {
-      await ffmpeg.deleteFile(path).catch(() => undefined);
-    }
-    if (processedBytes > MAX_PROCESSED_BYTES) recycle();
+    videoInput.dispose();
+    audioInput.dispose();
   }
 }
 
-/** Muxes separate video and audio tracks into one MP4 without re-encoding. Calls are serialised. */
+/** Muxes separate video and audio tracks into one MP4 using Mediabunny and WebCodecs. Calls are serialised. */
 export function mergeVideoAndAudio(input: MergeInput): Promise<File> {
   const result = queue.then(() => merge(input));
   queue = result.catch(() => undefined);

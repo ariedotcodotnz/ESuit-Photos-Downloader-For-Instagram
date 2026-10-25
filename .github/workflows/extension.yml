@@ -159,7 +159,7 @@ jobs:
           Keep the extracted folder: the browser loads the extension from it.
           To update, extract the next release into that folder and click **Reload** on the extensions page.
 
-          The ZIP contains the built extension, including its local FFmpeg assets.
+          The ZIP contains the built extension ready to load unpacked in Chromium.
           EOF
           if [ "$EXISTING_DRAFT" != true ]; then
             gh release create "$TAG" --draft --target "$GITHUB_SHA" \

@@ -1,3 +1,4 @@
+import type { ManifestV3Export } from "@crxjs/vite-plugin";
 import { HOST_MATCHES, INSTAGRAM_ORIGIN } from "./shared/constants";
 
 /** Output paths shared by the manifest and the build (see `vite.config.ts`). */
@@ -9,7 +10,6 @@ export const OUTPUT = {
   hook: "injects/hook.js",
   app: "injects/app.js",
   appCss: "injects/app.css",
-  ffmpegWorker: "injects/ffmpeg-worker.js",
   cspRules: "rules/csp.json",
 } as const;
 
@@ -19,6 +19,22 @@ const icons = Object.fromEntries(ICON_SIZES.map((size) => [String(size), `icons/
 interface PackageInfo {
   version: string;
 }
+
+export const MAIN_WORLD_CONTENT_SCRIPTS = [
+  {
+    // Must run before Instagram defines its modules so they can be patched.
+    matches: HOST_MATCHES,
+    js: [OUTPUT.hook],
+    run_at: "document_start",
+    world: "MAIN",
+  },
+  {
+    matches: HOST_MATCHES,
+    js: [OUTPUT.app],
+    run_at: "document_end",
+    world: "MAIN",
+  },
+] as const;
 
 export function createManifest(pkg: PackageInfo): chrome.runtime.ManifestV3 {
   return {
@@ -50,19 +66,7 @@ export function createManifest(pkg: PackageInfo): chrome.runtime.ManifestV3 {
         css: [OUTPUT.appCss],
         run_at: "document_start",
       },
-      {
-        // Must run before Instagram defines its modules so they can be patched.
-        matches: HOST_MATCHES,
-        js: [OUTPUT.hook],
-        run_at: "document_start",
-        world: "MAIN",
-      },
-      {
-        matches: HOST_MATCHES,
-        js: [OUTPUT.app],
-        run_at: "document_end",
-        world: "MAIN",
-      },
+      ...MAIN_WORLD_CONTENT_SCRIPTS,
     ] as chrome.runtime.ManifestV3["content_scripts"],
     // Lets the MAIN-world scripts call chrome.runtime.sendMessage(extensionId, ...).
     externally_connectable: {
@@ -70,8 +74,8 @@ export function createManifest(pkg: PackageInfo): chrome.runtime.ManifestV3 {
     },
     web_accessible_resources: [
       {
-        // The page fetches these to run FFmpeg in a Worker and to show the icon.
-        resources: ["ffmpeg/*", OUTPUT.ffmpegWorker, "icons/*"],
+        // The page fetches these to show the icon.
+        resources: ["icons/*"],
         matches: HOST_MATCHES,
       },
     ],
@@ -83,11 +87,59 @@ export function createManifest(pkg: PackageInfo): chrome.runtime.ManifestV3 {
 }
 
 /**
+ * Manifest passed to `@crxjs/vite-plugin`, using source entry paths (relative
+ * to `src/`) for the service worker and isolated-world content script. The
+ * pre-built MAIN-world scripts (`hook` and `app`) are appended in
+ * `renderCrxManifest` after their IIFE targets have been built.
+ */
+export function createCrxManifest(pkg: PackageInfo): ManifestV3Export {
+  return {
+    manifest_version: 3,
+    name: "__MSG_name__",
+    description: "__MSG_description__",
+    default_locale: "en",
+    version: pkg.version,
+    minimum_chrome_version: "111",
+    icons,
+    action: {
+      default_icon: icons,
+      default_popup: OUTPUT.popup,
+    },
+    options_page: OUTPUT.options,
+    background: {
+      service_worker: "background/index.ts",
+      type: "module",
+    },
+    permissions: ["storage", "downloads", "declarativeNetRequest", "contextMenus"],
+    host_permissions: [...HOST_MATCHES],
+    content_scripts: [
+      {
+        matches: [...HOST_MATCHES],
+        js: ["content/bridge.ts"],
+        run_at: "document_start",
+      },
+    ],
+    externally_connectable: {
+      matches: [...HOST_MATCHES],
+    },
+    web_accessible_resources: [
+      {
+        resources: ["icons/*"],
+        matches: [...HOST_MATCHES],
+      },
+    ],
+    declarative_net_request: {
+      rule_resources: [{ id: "csp", enabled: true, path: OUTPUT.cspRules }],
+    },
+    incognito: "not_allowed",
+  };
+}
+
+/**
  * Instagram's Content-Security-Policy blocks what the in-page code needs:
- * re-evaluating patched module sources (inline script), running FFmpeg's
- * WebAssembly in a blob: Worker and fetching extension resources. The original
- * extension removed the CSP headers for every request on the site; this rule
- * is narrowed to top-level Instagram documents only.
+ * re-evaluating patched module sources (inline script) and fetching extension
+ * resources. The original extension removed the CSP headers for every request
+ * on the site; this rule is narrowed to top-level Instagram documents only.
  */
 export function createCspRules(): chrome.declarativeNetRequest.Rule[] {
   return [
