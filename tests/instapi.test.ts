@@ -110,7 +110,47 @@ describe("fetchReelsMedia", () => {
   it("returns no files for an empty reel or list of ids", async () => {
     expect(await fetchReelsMedia([])).toEqual({ reels: [], items: [] });
     expect(apiGet).not.toHaveBeenCalled();
-    apiGet.mockResolvedValueOnce({ data: { reels: {} } });
+    apiGet.mockResolvedValueOnce({ data: { reels: {} } }).mockResolvedValueOnce({ data: { reel: null } });
     expect(await fetchReelsMedia([reel.id])).toEqual({ reels: [], items: [] });
+    expect(apiGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the reels_media list when the reels map is empty", async () => {
+    apiGet.mockResolvedValue({ data: { reels: {}, reels_media: [reel] } });
+    const result = await fetchReelsMedia([reel.id]);
+    expect(apiGet).toHaveBeenCalledTimes(1);
+    expect(result.reels).toEqual([reel]);
+    expect(result.items).toHaveLength(2);
+  });
+
+  it("does not duplicate a reel present in both the map and the list", async () => {
+    apiGet.mockResolvedValue({ data: { reels: { [reel.id]: reel }, reels_media: [reel] } });
+    const result = await fetchReelsMedia([reel.id]);
+    expect(result.reels).toEqual([reel]);
+    expect(result.items).toHaveLength(2);
+  });
+
+  it("uses the user's story feed when the bulk response has no stories for them", async () => {
+    apiGet.mockResolvedValueOnce({ data: { reels: {}, reels_media: [] } }).mockResolvedValueOnce({ data: { reel } });
+    const result = await fetchReelsMedia([reel.id]);
+    expect(apiGet).toHaveBeenLastCalledWith(`/api/v1/feed/user/${reel.id}/story/`, undefined);
+    expect(result.reels).toEqual([reel]);
+    expect(result.items.map((item) => item.id)).toEqual(["story-photo", "story-video"]);
+  });
+
+  it("replaces a bulk reel without items by the user's story feed", async () => {
+    apiGet
+      .mockResolvedValueOnce({ data: { reels: { [reel.id]: { ...reel, items: [] } } } })
+      .mockResolvedValueOnce({ data: { reel } });
+    const result = await fetchReelsMedia([reel.id]);
+    expect(apiGet).toHaveBeenCalledTimes(2);
+    expect(result.reels).toEqual([reel]);
+    expect(result.items).toHaveLength(2);
+  });
+
+  it("does not look up a story feed for an empty highlight", async () => {
+    apiGet.mockResolvedValue({ data: { reels: {} } });
+    expect(await fetchReelsMedia(["highlight:123"])).toEqual({ reels: [], items: [] });
+    expect(apiGet).toHaveBeenCalledTimes(1);
   });
 });

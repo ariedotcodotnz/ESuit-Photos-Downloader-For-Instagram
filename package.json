@@ -1,7 +1,7 @@
 {
   "name": "ig-album-downloader",
   "displayName": "IG Album Downloader",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "description": "Bulk-download photos, videos and reels from Instagram profiles, saved collections, highlights, stories and hashtag searches.",
