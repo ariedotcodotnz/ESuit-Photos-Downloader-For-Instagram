@@ -24,6 +24,13 @@ export function getPageName(route: IgRouteContextValue | null = currentRoute): s
 /** The visible story item, captured by the story player hook. */
 export const highlightState: { currentItemId?: string } = {};
 
+/** The media hook is preferred; a story permalink also works before it mounts. */
+export function getCurrentStoryId(): string | undefined {
+  return (
+    highlightState.currentItemId ?? window.location.pathname.match(/^\/stories\/(?!highlights\/)[^/]+\/(\d+)\/?$/)?.[1]
+  );
+}
+
 /** Sub-folders used by "Split-Folder": posts / reels / tagged / saved / highlights. */
 export function getSplitFolderSegments(highlight?: HighlightInfo): string[] {
   const { href } = window.location;

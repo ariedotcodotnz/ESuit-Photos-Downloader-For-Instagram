@@ -100,6 +100,23 @@
                 },
               ],
             };
+            var mediaScenario = new URLSearchParams(location.search).get("media");
+            if (mediaScenario === "video") {
+              data.items[0] = Object.assign({}, data.items[0], {
+                media_type: 2,
+                video_versions: [{ url: "https://scontent.cdninstagram.com/v/reel.mp4", width: 1080, height: 1920 }],
+                clips_metadata: { original_sound_info: { progressive_download_url: "https://scontent.cdninstagram.com/v/sound.m4a", original_audio_title: "Song" } },
+              });
+            } else if (mediaScenario === "carousel") {
+              var photo = data.items[0];
+              data.items[0] = Object.assign({}, photo, {
+                media_type: 8,
+                carousel_media: [photo, Object.assign({}, photo, {
+                  pk: "3141592653589794",
+                  image_versions2: { candidates: [{ url: "https://scontent.cdninstagram.com/v/second.jpg", width: 1080, height: 1350 }] },
+                })],
+              });
+            }
             if (path === "/api/v1/feed/user/999/") {
               if (window.__holdProfileFeed) {
                 await new Promise(function (resolve) { window.__releaseProfileFeed = resolve; });
@@ -129,6 +146,7 @@
               if (window.__storyFeedFailure) {
                 throw Object.assign(new Error("Stories are temporarily unavailable."), { statusCode: 503 });
               }
+              if (window.__storyFeedEmpty) return { data: { reel: null } };
               return { data: { reel: { id: "1563074505", user: data.items[0].user, items: data.items } } };
             }
             if (!path.includes("/api/v1/media/")) throw new Error("unexpected API call " + path);
@@ -136,6 +154,58 @@
           },
         };
       });
+      // Supply the viewer's persisted query and XHR stack only in GraphQL scenarios.
+      if (new URLSearchParams(location.search).has("storyGraphql")) {
+        (function () {
+          var define = function (name, value) {
+            __d(name, [], function (g, r, d, n, l, module) { module.exports = value; });
+          };
+          var provider = "__relay_internal__pv__PolarisCommunityNoteStoriesLabelEnabledrelayprovider";
+          ["PolarisStoriesV3ReelPageGalleryQuery", "PolarisStoriesV3HighlightsPageQuery"].forEach(function (name) {
+            define(name + ".graphql", { params: {
+              id: "runtime-" + name,
+              providedVariables: { [provider]: { get: function () { return true; } } },
+            } });
+          });
+          define("getAsyncParams", function () { return { fb_dtsg: "session-token" }; });
+          define("RelayAPIConfig", { actorID: "123" });
+          define("WebPixelRatio", { get: function () { return 2; } });
+          define("WebBloksVersioningID", { versioningID: "mock-version" });
+          define("createRelayChunkedResponseParser", function (callback) { return callback; });
+          define("RelayGraphQLRequestUtils", { parsePayload: JSON.parse });
+          class MockXHRRequest {
+            constructor(url) { this.url = url; this.headers = {}; }
+            setMethod(method) { this.method = method; return this; }
+            setData(data) { this.data = data; return this; }
+            setRequestHeader(name, value) { this.headers[name] = value; return this; }
+            setErrorHandler(handler) { this.onError = handler; return this; }
+            setResponseHandler(handler) { this.onResponse = handler; return this; }
+            setTimeout() { return this; }
+            setTimeoutHandler() { return this; }
+            send() {
+              window.__graphqlCalls = (window.__graphqlCalls || []).concat({ url: this.url, method: this.method, data: this.data, headers: this.headers });
+              if (window.__storyGraphqlFailure) return this.onError({ errorCode: 429, errorMsg: "Too Many Requests" });
+              var variables = JSON.parse(this.data.variables);
+              var id = variables.reel_ids[0];
+              var reel = {
+                id: id, title: "Trips", user: { username: "someone", full_name: "Some One" },
+                items: [
+                  { pk: "graphql-photo", media_type: 1, taken_at: 1700000000,
+                    image_versions2: { candidates: [{ url: "https://scontent.cdninstagram.com/v/graphql.jpg", width: 1080, height: 1920 }] } },
+                  { pk: "graphql-video", media_type: 2, taken_at: 1700000001,
+                    image_versions2: { candidates: [{ url: "https://scontent.cdninstagram.com/v/thumbnail.jpg", width: 1080, height: 1920 }] },
+                    video_versions: [{ url: "https://scontent.cdninstagram.com/v/graphql.mp4", width: 1080, height: 1920 }] },
+                ],
+              };
+              var edges = window.__storyGraphqlEmpty ? [] : [{ node: Object.assign({}, reel, { id: "unrequested-user" }) }, { node: reel }];
+              this.onResponse([{ isComplete: true, responseText: JSON.stringify({ data: {
+                xdt_api__v1__feed__reels_media__connection: { edges: edges },
+              } }) }]);
+            }
+          }
+          define("XHRRequest", MockXHRRequest);
+        })();
+      }
       // A patch target, defined ES-module style like Instagram's Polaris components.
       __d("PolarisFeedNavItem.react", [], function (g, r, d, n, l, module, exports) {
         exports.default = function PolarisFeedNavItem() {
@@ -147,9 +217,18 @@
           return h("button", { className: "ig-save" }, "Save " + props.postId);
         };
       });
+      __d("PolarisMediaSaveButton.react", [], function (g, r, d, n, l, module, exports) {
+        exports.default = function MediaSaveButton() { return h("button", { className: "ig-save" }, "Save reel"); };
+      });
+      __d("PolarisStoriesV3Media.react", [], function (g, r, d, n, l, module, exports) {
+        exports.default = function StoryMedia() { return h("span", null, "Current story"); };
+      });
       __d("PolarisStoriesV3ReelPlayerContainer.react", [], function (g, r, d, n, l, module, exports) {
         exports.default = function StoryPlayer() {
-          return h("div", { className: "ig-story" }, "Story player");
+          return h("div", { className: "ig-story" }, "Story player",
+            location.pathname.includes("/highlights/") && h(window.require("PolarisStoriesV3Media.react").default, {
+              media: { __id: "XDTMediaDict:" + (new URLSearchParams(location.search).has("storyGraphql") ? "graphql-photo" : "3141592653589793") },
+            }));
         };
       });
       __d("PolarisStoriesV3HighlightsRoot.react", [], function (g, r, d, n, l, module, exports) {
@@ -178,6 +257,7 @@
         var RouteContext = require("CometRouterRouteContext");
         var FeedNavItem = require("PolarisFeedNavItem.react").default;
         var SaveButton = require("PolarisSaveButton.react").default;
+        var MediaSaveButton = require("PolarisMediaSaveButton.react").default;
         var StoryPlayer = require("PolarisStoriesV3ReelPlayerContainer.react").default;
         var HighlightsRoot = require("PolarisStoriesV3HighlightsRoot.react").default;
         var viewingHighlights = location.pathname.includes("/highlights/");
@@ -198,7 +278,12 @@
           .render(
             h(RouteContext.Provider, { value: route },
               h("nav", { id: "nav" }, h(FeedNavItem)),
-              h("main", { id: "post" }, h(SaveButton, { postId: "3141592653589793" })),
+              h("main", { id: "post", style: { paddingTop: new URLSearchParams(location.search).has("media") ? 220 : 0 } },
+                new URLSearchParams(location.search).get("media") === "video"
+                  ? h(MediaSaveButton, { mediaFragmentKey: { pk: "3141592653589793", media_type: 2 } })
+                  : h(SaveButton, { postId: "3141592653589793" }),
+                new URLSearchParams(location.search).get("media") === "carousel" &&
+                  h("div", { className: "igdl-step-indicator" }, h("div", null, h("span", { style: { opacity: 0.3 } }), h("span", { style: { opacity: 1 } })))),
               h("div", { id: "profile-avatar" }, h(ProfileAvatar, { user: avatarUser })),
               location.pathname.startsWith("/stories/") &&
                 h("div", { id: "story", style: { width: 400, height: 600 } },

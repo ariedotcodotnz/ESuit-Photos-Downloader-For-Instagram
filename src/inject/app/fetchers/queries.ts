@@ -1,7 +1,7 @@
 import type { GraphqlQuery } from "../ig/graphql";
 
 /*
- * Persisted GraphQL operations used by the profile fetchers. The document ids
+ * Persisted GraphQL operations used by the downloader. The document ids
  * are read from Instagram's own loaded modules at runtime (see graphql.ts);
  * only the default variables live here. The original extension downloaded
  * both from its vendor's server instead.
@@ -31,6 +31,16 @@ export const PROFILE_REELS_QUERY: GraphqlQuery = {
 export const PROFILE_TAGGED_QUERY: GraphqlQuery = {
   name: "PolarisProfileTaggedTabContentQuery_connection",
   variables: { before: null, count: 12, first: 12, last: null },
+};
+
+export const STORIES_QUERY: GraphqlQuery = {
+  name: "PolarisStoriesV3ReelPageGalleryQuery",
+  variables: { first: 3, last: 2 },
+};
+
+export const HIGHLIGHTS_QUERY: GraphqlQuery = {
+  name: "PolarisStoriesV3HighlightsPageQuery",
+  variables: { first: 3, last: 2 },
 };
 
 export interface GraphqlConnection<TNode> {

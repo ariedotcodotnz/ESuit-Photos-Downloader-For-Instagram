@@ -65,7 +65,11 @@ try {
 
   const page = await context.newPage();
   const consoleErrors = [];
-  page.on("console", (msg) => msg.type() === "error" && consoleErrors.push(msg.text()));
+  const consoleWarnings = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") consoleErrors.push(msg.text());
+    if (msg.type() === "warning") consoleWarnings.push(msg.text());
+  });
   page.on("pageerror", (err) => consoleErrors.push(`pageerror: ${err.message}`));
 
   await page.goto("https://www.instagram.com/someone/");
@@ -173,6 +177,43 @@ try {
     }),
   );
 
+  await page.goto("https://www.instagram.com/p/CODE123/?media=carousel");
+  const singlePostIcon = page.locator("#post .download-single-button img").first();
+  await singlePostIcon.waitFor({ timeout: 15000 });
+  await page.mouse.move(0, 0);
+  await singlePostIcon.hover();
+  await page.getByRole("button", { name: "Download Current Image" }).click();
+  await page.getByText("Download Successful").first().waitFor({ timeout: 10000 });
+  check(
+    "the current carousel image uses the saved custom filename",
+    await worker.evaluate(() => {
+      const download = globalThis.__requestedDownloads.at(-1);
+      return (
+        download.url === "https://scontent.cdninstagram.com/v/second.jpg" &&
+        download.filename === "IG Album Downloader/custom_someone_1700000000.jpg"
+      );
+    }),
+  );
+
+  await page.goto("https://www.instagram.com/reel/CODE123/?media=video");
+  await singlePostIcon.waitFor({ timeout: 15000 });
+  await singlePostIcon.click();
+  await page.getByText("Download Successful").first().waitFor({ timeout: 10000 });
+  check(
+    "a single reel uses the saved filename and video extension",
+    await worker.evaluate(
+      () => globalThis.__requestedDownloads.at(-1)?.filename === "IG Album Downloader/custom_someone_1700000000.mp4",
+    ),
+  );
+  await page.locator("#post .download-single-button svg").click();
+  await page.getByText("Audio download successful", { exact: true }).waitFor({ timeout: 10000 });
+  check(
+    "single audio downloads use the saved filename and audio extension",
+    await worker.evaluate(
+      () => globalThis.__requestedDownloads.at(-1)?.filename === "IG Album Downloader/custom_someone_1700000000.m4a",
+    ),
+  );
+
   // Hotkey on a post URL.
   await page.goto("https://www.instagram.com/p/CODE123/");
   await page.locator(".ig-nav-item").waitFor({ timeout: 15000 });
@@ -197,6 +238,19 @@ try {
     ),
   );
 
+  await page.getByText("Download Successful").first().waitFor({ state: "hidden", timeout: 10000 });
+  await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: "https://www.instagram.com/p/CODE123/" });
+    await chrome.tabs.sendMessage(tab.id, { from: "ig-album-downloader", event: "contextMenuDownload", payload: [] });
+  });
+  await page.getByText("Download Successful").first().waitFor({ timeout: 10000 });
+  check(
+    "the context-menu download uses the saved custom filename",
+    await worker.evaluate(
+      () => globalThis.__requestedDownloads.at(-1)?.filename === "IG Album Downloader/custom_someone_1700000000.jpg",
+    ),
+  );
+
   // Reproduce a bulk-story HTTP 500, then exercise the selection view when
   // both endpoints fail. A retry should recover without reopening the modal.
   await page.goto("https://www.instagram.com/stories/someone/");
@@ -215,6 +269,10 @@ try {
     "fallback story is sent to browser downloads",
     storyDownloads.at(-1)?.url === "https://scontent.cdninstagram.com/v/full_n.jpg" &&
       storyDownloads.at(-1)?.filename === "IG Album Downloader/custom_someone_1700000000.jpg",
+  );
+  check(
+    "story recovery does not emit an extension warning",
+    !consoleWarnings.some((warning) => warning.includes("[ig-album-downloader:instapi]")),
   );
 
   await page.evaluate(() => {
@@ -256,6 +314,109 @@ try {
   await page.screenshot({ path: join(out, "story-selection-recovered.png") });
   await page.locator("button.ant-modal-close").click();
 
+  // Exercise the actual GraphQL client, including dynamic document ids and providers.
+  await page.goto("https://www.instagram.com/stories/someone/?storyGraphql");
+  await storyIcon.waitFor({ timeout: 15000 });
+  await storyIcon.click();
+  await page.getByText("Download Successful").first().waitFor({ timeout: 15000 });
+  const graphqlCalls = await page.evaluate(() => window.__graphqlCalls);
+  const graphqlVariables = JSON.parse(graphqlCalls[0].data.variables);
+  check(
+    "story GraphQL uses the viewer's current document id, session and provider variables",
+    graphqlCalls.length === 1 &&
+      graphqlCalls[0].url === "/graphql/query/" &&
+      graphqlCalls[0].method === "POST" &&
+      graphqlCalls[0].data.doc_id === "runtime-PolarisStoriesV3ReelPageGalleryQuery" &&
+      graphqlCalls[0].data.fb_dtsg === "session-token" &&
+      graphqlCalls[0].headers["X-FB-Friendly-Name"] === "PolarisStoriesV3ReelPageGalleryQuery" &&
+      graphqlVariables.initial_reel_id === "1563074505" &&
+      graphqlVariables.reel_ids[0] === "1563074505" &&
+      graphqlVariables.first === 3 &&
+      graphqlVariables.last === 2 &&
+      graphqlVariables.__relay_internal__pv__PolarisCommunityNoteStoriesLabelEnabledrelayprovider === true,
+    JSON.stringify(graphqlCalls),
+  );
+  const graphqlDownloads = await worker.evaluate(() => globalThis.__requestedDownloads.slice(-2));
+  check(
+    "GraphQL downloads the requested user's photo and video without the REST feeds",
+    graphqlDownloads[0]?.url === "https://scontent.cdninstagram.com/v/graphql.jpg" &&
+      graphqlDownloads[1]?.url === "https://scontent.cdninstagram.com/v/graphql.mp4" &&
+      (await page.evaluate(() => window.__apiCalls ?? [])).length === 0,
+    JSON.stringify(graphqlDownloads),
+  );
+
+  await page.mouse.move(0, 0);
+  await storyIcon.hover();
+  await page.getByRole("button", { name: "Select to Download" }).click();
+  await page.getByRole("checkbox", { name: "Select All", exact: true }).waitFor({ timeout: 10000 });
+  check("GraphQL fills the story selection view", (await page.getByRole("checkbox").count()) === 3);
+  await page.locator("button.ant-modal-close").click();
+
+  await page.evaluate(() => {
+    window.__storyGraphqlFailure = true;
+  });
+  const graphqlErrorStart = consoleErrors.length;
+  const beforeGraphqlFailure = await page.evaluate(() => window.__graphqlCalls.length);
+  await storyIcon.click();
+  await page
+    .getByText("Instagram is temporarily limiting requests. Please wait before trying again.", { exact: true })
+    .waitFor({ timeout: 10000 });
+  check(
+    "a GraphQL rate limit is reported after one request without switching endpoints",
+    (await page.evaluate(() => window.__graphqlCalls.length)) === beforeGraphqlFailure + 1 &&
+      (await page.evaluate(() => window.__apiCalls ?? [])).length === 0,
+  );
+  const graphqlErrors = consoleErrors.splice(graphqlErrorStart);
+  check("GraphQL rate limit is handled once", graphqlErrors.length === 1 && graphqlErrors[0].includes("429"));
+
+  await page.goto("https://www.instagram.com/stories/highlights/777/?storyGraphql");
+  await storyIcon.waitFor({ timeout: 15000 });
+  await storyIcon.click();
+  await page.getByText("Download Successful").first().waitFor({ timeout: 15000 });
+  check(
+    "highlights use their own persisted GraphQL query",
+    await page.evaluate(() => window.__graphqlCalls[0].data.doc_id === "runtime-PolarisStoriesV3HighlightsPageQuery"),
+  );
+
+  await page.goto("https://www.instagram.com/stories/rylan_oshea/4019954654901283619/");
+  await storyIcon.waitFor({ timeout: 15000 });
+  await page.mouse.move(0, 0);
+  await storyIcon.hover();
+  await page.getByRole("button", { name: "Download Current Story" }).click();
+  await page.getByText("Download Successful").first().waitFor({ timeout: 15000 });
+  const currentStoryCalls = await page.evaluate(() => window.__apiCalls);
+  check(
+    "current story downloads directly from the permalink without requesting a story feed",
+    currentStoryCalls.includes("/api/v1/media/4019954654901283619/info/") &&
+      !currentStoryCalls.includes("/api/v1/feed/reels_media/"),
+    currentStoryCalls.join(","),
+  );
+
+  check(
+    "the current story uses the saved custom filename",
+    await worker.evaluate(
+      () => globalThis.__requestedDownloads.at(-1)?.filename === "IG Album Downloader/custom_someone_1700000000.jpg",
+    ),
+  );
+
+  await page.evaluate(() => {
+    window.__storyFeedEmpty = true;
+  });
+  const beforeEmptyStory = await worker.evaluate(() => globalThis.__requestedDownloads.length);
+  await storyIcon.click();
+  await page.getByText("No story files are available to download.", { exact: true }).waitFor({ timeout: 10000 });
+  check(
+    "an empty story feed reports no files and starts no downloads",
+    (await worker.evaluate(() => globalThis.__requestedDownloads.length)) === beforeEmptyStory,
+  );
+
+  await worker.evaluate(async () => {
+    const { settings } = await chrome.storage.local.get("settings");
+    await chrome.storage.local.set({
+      settings: { ...settings, filenameFormats: "avatar_-**username code**-_-**file id**-" },
+    });
+  });
+
   // Avatar downloads should reuse the profile's loaded picture even when the
   // user-info API is rate limited. With no cached picture, explain a blank 429.
   await page.goto("https://www.instagram.com/someone/");
@@ -267,10 +428,10 @@ try {
   await page.getByText("Download Successful").first().waitFor({ timeout: 10000 });
   const avatarDownloads = await worker.evaluate(() => globalThis.__requestedDownloads);
   check(
-    "avatar download uses the loaded HD picture with the correct folder",
+    "avatar download uses the loaded HD picture, custom filename and profile folder",
     avatarDownloads.length === beforeAvatar + 1 &&
       avatarDownloads.at(-1).url === "https://scontent.cdninstagram.com/v/avatar-hd.jpg" &&
-      avatarDownloads.at(-1).filename === "IG Album Downloader/Some One/avatar.jpg",
+      avatarDownloads.at(-1).filename === "IG Album Downloader/Some One/avatar_someone_50230154343.jpg",
   );
   check(
     "loaded avatar does not call the rate-limited user-info API",
@@ -286,7 +447,8 @@ try {
     "avatar can use its displayed image when profile metadata is missing",
     displayedAvatarDownloads.length === avatarDownloads.length + 1 &&
       displayedAvatarDownloads.at(-1).url === "https://scontent.cdninstagram.com/v/avatar-small.jpg" &&
-      displayedAvatarDownloads.at(-1).filename === "IG Album Downloader/50230154343/avatar.jpg" &&
+      displayedAvatarDownloads.at(-1).filename ===
+        "IG Album Downloader/50230154343/avatar_50230154343_50230154343.jpg" &&
       !(await page.evaluate(() => window.__apiCalls ?? [])).includes("/api/v1/users/50230154343/info/"),
   );
 
@@ -458,6 +620,19 @@ try {
   await page.getByText("Download Successful").first().waitFor({ timeout: 10000 });
   check(
     "quick highlight download uses custom filenames and the author, type and title folders",
+    await worker.evaluate(
+      () =>
+        globalThis.__requestedDownloads.at(-1)?.filename ===
+        "IG Album Downloader/someone/highlights/Trips/highlight_someone_3141592653589793.jpg",
+    ),
+  );
+  await page.getByText("Download Successful").first().waitFor({ state: "hidden", timeout: 10000 });
+  await page.mouse.move(0, 0);
+  await storyIcon.hover();
+  await page.getByRole("button", { name: "Download Current Story" }).click();
+  await page.getByText("Download Successful").first().waitFor({ timeout: 10000 });
+  check(
+    "the current highlight item keeps its custom filename and title folder",
     await worker.evaluate(
       () =>
         globalThis.__requestedDownloads.at(-1)?.filename ===

@@ -23,7 +23,7 @@ describe("fetchProfileAvatar", () => {
         profile_pic_url: "small.jpg",
         hd_profile_pic_url_info: { url: "hd.jpg" },
       }),
-    ).toEqual({ url: "hd.jpg", folderName: "Some One" });
+    ).toMatchObject({ url: "hd.jpg", folderName: "Some One", username: "someone", fullName: "Some One" });
     expect(fetchUserInfo).not.toHaveBeenCalled();
   });
 
@@ -33,7 +33,7 @@ describe("fetchProfileAvatar", () => {
       { url: "large.jpg", width: 1080, height: 1080 },
       { url: "medium.jpg", width: 320, height: 320 },
     ];
-    expect(await fetchProfileAvatar("123", { username: "someone", hd_profile_pic_versions: versions })).toEqual({
+    expect(await fetchProfileAvatar("123", { username: "someone", hd_profile_pic_versions: versions })).toMatchObject({
       url: "large.jpg",
       folderName: "someone",
     });
@@ -47,7 +47,7 @@ describe("fetchProfileAvatar", () => {
       if (path === "^hd_profile_pic_url_info.url") return "cached-hd.jpg";
       if (path === "full_name") return "Cached Name";
     });
-    expect(await fetchProfileAvatar("123", { profile_pic_url: "thumbnail.jpg" })).toEqual({
+    expect(await fetchProfileAvatar("123", { profile_pic_url: "thumbnail.jpg" })).toMatchObject({
       url: "cached-hd.jpg",
       folderName: "Cached Name",
     });
@@ -55,7 +55,7 @@ describe("fetchProfileAvatar", () => {
   });
 
   it("uses the normal loaded picture when HD is unavailable, without making an API request", async () => {
-    expect(await fetchProfileAvatar("123", { profile_pic_url: "loaded.jpg" })).toEqual({
+    expect(await fetchProfileAvatar("123", { profile_pic_url: "loaded.jpg" })).toMatchObject({
       url: "loaded.jpg",
       folderName: "123",
     });
@@ -67,12 +67,12 @@ describe("fetchProfileAvatar", () => {
       if (path === "profile_pic_url") return "cached.jpg";
       if (path === "username") return "cached_user";
     });
-    expect(await fetchProfileAvatar("123")).toEqual({ url: "cached.jpg", folderName: "cached_user" });
+    expect(await fetchProfileAvatar("123")).toMatchObject({ url: "cached.jpg", folderName: "cached_user" });
     expect(fetchUserInfo).not.toHaveBeenCalled();
   });
 
   it("uses the displayed profile picture when component fields and Relay are unavailable", async () => {
-    expect(await fetchProfileAvatar("123", {}, "displayed.jpg")).toEqual({
+    expect(await fetchProfileAvatar("123", {}, "displayed.jpg")).toMatchObject({
       url: "displayed.jpg",
       folderName: "123",
     });
@@ -86,7 +86,7 @@ describe("fetchProfileAvatar", () => {
       full_name: "Some One",
       profile_pic_url_hd: "api-hd.jpg",
     });
-    expect(await fetchProfileAvatar("123")).toEqual({ url: "api-hd.jpg", folderName: "Some One" });
+    expect(await fetchProfileAvatar("123")).toMatchObject({ url: "api-hd.jpg", folderName: "Some One" });
     expect(fetchUserInfo).toHaveBeenCalledExactlyOnceWith("123");
   });
 
@@ -94,7 +94,7 @@ describe("fetchProfileAvatar", () => {
     readRelayRecord.mockImplementation(() => {
       throw new Error("Relay unavailable");
     });
-    expect(await fetchProfileAvatar("123", { username: "someone", profile_pic_url: "loaded.jpg" })).toEqual({
+    expect(await fetchProfileAvatar("123", { username: "someone", profile_pic_url: "loaded.jpg" })).toMatchObject({
       url: "loaded.jpg",
       folderName: "someone",
     });
@@ -122,7 +122,7 @@ describe("fetchProfileAvatar", () => {
           full_name: fullName,
           profile_pic_url: "loaded.jpg",
         }),
-      ).toEqual({
+      ).toMatchObject({
         url: "loaded.jpg",
         folderName: "someone",
       });

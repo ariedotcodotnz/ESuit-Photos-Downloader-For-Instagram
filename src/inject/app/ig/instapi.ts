@@ -1,8 +1,11 @@
 import { createLogger } from "@/shared/logger";
 import { isDebug } from "../env";
+import { extractErrorMessage } from "../download/errors";
+import { HIGHLIGHTS_QUERY, STORIES_QUERY, readConnection } from "../fetchers/queries";
 import { toMediaItems, withAuthor, type IgImageCandidate, type IgMedia } from "../media/parse-media";
 import type { MediaItem } from "../media/types";
 import { requireIg, type IgApiGetOptions } from "./modules";
+import { GraphqlUnavailableError, graphqlRequest, isGraphqlQueryAvailable } from "./graphql";
 
 const log = createLogger("instapi", isDebug);
 
@@ -24,7 +27,8 @@ export async function fetchMediaInfo(mediaId: string): Promise<MediaItem[]> {
 export interface IgReel {
   id: string;
   title?: string;
-  user?: { username?: string; full_name?: string };
+  reel_title?: string;
+  user?: { pk?: string; pk_id?: string; username?: string; full_name?: string };
   items: IgMedia[];
 }
 
@@ -45,10 +49,8 @@ function reelsOf(data: IgReelsMediaResponse): IgReel[] {
   return reels.filter((reel, index) => reels.findIndex((other) => String(other.id) === String(reel.id)) === index);
 }
 
-/** Stories or highlight reels (`highlight:<id>` or a user id for current stories). */
-export async function fetchReelsMedia(reelIds: string[]): Promise<{ reels: IgReel[]; items: MediaItem[] }> {
-  if (!reelIds.length) return { reels: [], items: [] };
-
+/** Compatibility path for pages where Instagram has not loaded the story query. */
+async function fetchRestReels(reelIds: string[]): Promise<IgReel[]> {
   let reels: IgReel[] = [];
   try {
     reels = reelsOf(await apiGet<IgReelsMediaResponse>("/api/v1/feed/reels_media/", { query: { reel_ids: reelIds } }));
@@ -57,7 +59,7 @@ export async function fetchReelsMedia(reelIds: string[]): Promise<{ reels: IgRee
     // The bulk endpoint can fail while a user's story feed still works.
     // Do not issue more requests for login, permission or rate-limit errors.
     if (typeof status !== "number" || status < 500 || status >= 600 || !reelIds.every(isUserReelId)) throw error;
-    log.warn("Story request failed; trying individual story feeds", error);
+    log.debug(`Story request failed (HTTP ${status}); trying individual story feeds: ${extractErrorMessage(error)}`);
   }
 
   // It can also answer without a user's stories, which the story feed still has.
@@ -68,6 +70,48 @@ export async function fetchReelsMedia(reelIds: string[]): Promise<{ reels: IgRee
     const data = await apiGet<{ reel?: IgReel | null }>(`/api/v1/feed/user/${id}/story/`);
     if (data.reel) reels = [...reels.filter((reel) => String(reel.id) !== id), data.reel];
   }
+  return reels;
+}
+
+/** Uses the same persisted query as the story/highlight viewer. */
+async function fetchStoryReels(reelIds: string[]): Promise<IgReel[]> {
+  const query = reelIds.every(isUserReelId)
+    ? STORIES_QUERY
+    : reelIds.every((id) => id.startsWith("highlight:"))
+      ? HIGHLIGHTS_QUERY
+      : undefined;
+  if (!query || !isGraphqlQueryAvailable(query)) return fetchRestReels(reelIds);
+
+  let payloads;
+  try {
+    payloads = await graphqlRequest(query, { initial_reel_id: reelIds[0], reel_ids: reelIds }, { maxRetries: 0 });
+  } catch (error) {
+    // A missing module can race with navigation. Other failures must reach the
+    // UI without repeating requests or switching endpoints after a rate limit.
+    if (error instanceof GraphqlUnavailableError) return fetchRestReels(reelIds);
+    throw error;
+  }
+  const connection = readConnection<IgReel>(payloads, "xdt_api__v1__feed__reels_media__connection");
+  if (!Array.isArray(connection.edges)) throw new Error("Instagram did not return the story media connection.");
+  // Gallery queries can include adjacent users' reels. Download only the
+  // requested reels, including highlights returned with a numeric id.
+  return reelsOf({
+    reels_media: connection.edges
+      .flatMap(({ node }) =>
+        node ? [{ ...node, id: String(node.id ?? node.user?.pk ?? node.user?.pk_id ?? "") }] : [],
+      )
+      .filter((reel) =>
+        reelIds.some(
+          (id) => String(reel.id) === id || (id.startsWith("highlight:") && String(reel.id) === id.slice(10)),
+        ),
+      ),
+  });
+}
+
+/** Stories or highlight reels (`highlight:<id>` or a user id for current stories). */
+export async function fetchReelsMedia(reelIds: string[]): Promise<{ reels: IgReel[]; items: MediaItem[] }> {
+  if (!reelIds.length) return { reels: [], items: [] };
+  const reels = await fetchStoryReels(reelIds);
   const items = reels.flatMap((reel) => {
     const mediaItems = toMediaItems(
       (reel.items ?? []).map((media) =>
@@ -79,7 +123,7 @@ export async function fetchReelsMedia(reelIds: string[]): Promise<{ reels: IgRee
       ? id
       : reelIds.find((requested) => requested.startsWith("highlight:") && requested.slice("highlight:".length) === id);
     return highlightId
-      ? mediaItems.map((item) => ({ ...item, highlight: { id: highlightId, name: reel.title } }))
+      ? mediaItems.map((item) => ({ ...item, highlight: { id: highlightId, name: reel.title || reel.reel_title } }))
       : mediaItems;
   });
   return { reels, items };

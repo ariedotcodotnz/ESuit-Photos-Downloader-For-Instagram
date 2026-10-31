@@ -2,11 +2,11 @@ import { App, Avatar, Button, Tooltip } from "antd";
 import { useRef } from "react";
 import { appIconUrl } from "../../env";
 import { createHighlightsFetcher } from "../../fetchers/stories";
-import { downloadPost, quickDownload } from "../../download/quick-download";
+import { quickDownload } from "../../download/quick-download";
 import { useBusyAction } from "../../hooks/use-busy-action";
-import { fetchReelsMedia } from "../../ig/instapi";
+import { fetchMediaInfo, fetchReelsMedia } from "../../ig/instapi";
 import { isLoggedIn } from "../../ig/modules";
-import { highlightState } from "../../ig/route";
+import { getCurrentStoryId } from "../../ig/route";
 import { ModalView, type DownloaderModalHandle } from "../../state/downloader-modal";
 import { AppProviders } from "../AppProviders";
 import { DownloaderModal } from "../DownloaderModal";
@@ -21,21 +21,24 @@ function StoryDownloadButtonContent({ reelId }: { reelId: string }) {
 
   const downloadAll = () =>
     run(async () => {
-      await quickDownload(await loadItems(), { viaBrowserDownloads: true, respectDownloadType: true });
+      const items = await loadItems();
+      if (!items.length) return void message.error("No story files are available to download.");
+      await quickDownload(items, { viaBrowserDownloads: true, respectDownloadType: true });
       void message.success("Download Successful");
     });
 
   const downloadCurrent = () => {
-    const itemId = highlightState.currentItemId;
+    const itemId = getCurrentStoryId();
     if (!itemId) return void message.error("Unable to find the current story item.");
     void run(async () => {
-      const normalizedItemId = itemId.split("_")[0];
-      const current = (await loadItems()).find((item) => item.id === itemId || item.id === normalizedItemId);
-      if (current) {
-        await quickDownload([current], { viaBrowserDownloads: true });
-      } else {
-        await downloadPost(itemId, undefined, { viaBrowserDownloads: true });
-      }
+      // Highlight items carry the title used by Split-Folder. Current stories
+      // can be fetched directly even when their reel feed is unavailable.
+      const current = reelId.startsWith("highlight:")
+        ? (await loadItems()).filter((item) => item.id === itemId || item.id === itemId.split("_")[0])
+        : [];
+      const items = current.length ? current : await fetchMediaInfo(itemId);
+      if (!items.length) return void message.error("No story files are available to download.");
+      await quickDownload(items, { viaBrowserDownloads: true });
       void message.success("Download Successful");
     });
   };

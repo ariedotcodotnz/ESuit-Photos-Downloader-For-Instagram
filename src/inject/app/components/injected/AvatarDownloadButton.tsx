@@ -1,11 +1,10 @@
 import { App, Avatar, Spin, Tooltip } from "antd";
 import { useRef, useState, type ReactNode } from "react";
-import { sanitizeFolderName } from "@/shared/filename";
 import { appIconUrl } from "../../env";
+import { quickDownload } from "../../download/quick-download";
 import { useBusyAction } from "../../hooks/use-busy-action";
 import type { IgUserInfo } from "../../ig/instapi";
 import { fetchProfileAvatar } from "../../ig/profile-avatar";
-import { background } from "../../messaging";
 import { AppProviders } from "../AppProviders";
 
 function AvatarDownloadIcon({
@@ -26,7 +25,23 @@ function AvatarDownloadIcon({
     run(async () => {
       const avatar = await fetchProfileAvatar(userId, user, getDisplayedPicture());
       if (!avatar) return void message.error("Unable to find user avatar.");
-      await background.downloadFile(avatar.url, `${sanitizeFolderName(avatar.folderName)}/avatar.jpg`);
+      await quickDownload(
+        [
+          {
+            id: userId,
+            uri: avatar.url,
+            thumbnail: avatar.url,
+            authorName: avatar.username || avatar.folderName,
+            fullName: avatar.fullName,
+            isVideo: false,
+            // Profile pictures have no post date; date fields use the download time.
+            createdAt: Math.floor(Date.now() / 1000),
+            status: "waiting",
+            saveFolderPath: [avatar.folderName],
+          },
+        ],
+        { viaBrowserDownloads: true },
+      );
       void message.success("Download Successful");
     });
 

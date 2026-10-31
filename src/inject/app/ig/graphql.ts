@@ -160,11 +160,13 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export async function graphqlRequest(
   query: GraphqlQuery,
   variables: Record<string, unknown>,
+  options: { maxRetries?: number } = {},
 ): Promise<IgGraphqlPayload[]> {
+  const maxRetries = options.maxRetries ?? RETRY.maxRetries;
   let lastError: unknown;
-  for (let attempt = 0; attempt <= RETRY.maxRetries; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
-      log.warn(`retrying [${query.name}], attempt ${attempt} of ${RETRY.maxRetries}`);
+      log.warn(`retrying [${query.name}], attempt ${attempt} of ${maxRetries}`);
       await sleep(RETRY.baseDelayMs * 2 ** (attempt - 1));
     }
     try {
